@@ -32,3 +32,15 @@ Changes:
 - `src/__tests__/prompt-history.test.ts`: 18 tests covering load, save, add, deduplicate, navigate up/down, draft preservation, cursor reset
 
 All 113 tests pass. Type checks clean.
+
+## Bulk VM Creation Feature
+
+Added bulk VM creation (press `C` / Shift-C) to create multiple agent VMs at once. Essential for spinning up a fleet of parallel agents quickly — enter a number (1-20) and all VMs are created and provisioned in parallel with live progress updates.
+
+Changes:
+- `src/types.ts`: Added `'bulk-create'` to AppState mode union
+- `src/tui.ts`: Added bulk create dialog (green border, 50x5), `S-c` keybinding, number input with validation (1-20), submit/cancel handlers. Updated help screen with new keybinding, updated status bar to include `C:bulk-create`. Fixed `q` key to not quit during broadcast/bulk-create modes.
+- `src/index.ts`: Added `bulk-create` handler that creates N VMs in parallel via `Promise.all`, then provisions all in parallel with progress tracking (`Provisioned X/N...`)
+- `src/__tests__/types.test.ts`: Added test for bulk-create mode
+
+All 114 tests pass. Type checks clean.

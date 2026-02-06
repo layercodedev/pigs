@@ -86,7 +86,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  Enter:activate  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -183,6 +183,44 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
+  // Bulk create dialog (hidden by default)
+  const bulkCreateDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 50,
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'green' },
+      bg: 'black',
+    },
+    label: ' Create Multiple Agent VMs ',
+    tags: true,
+  });
+
+  const bulkCreateInput = blessed.textbox({
+    parent: bulkCreateDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const bulkCreateHint = blessed.text({
+    parent: bulkCreateDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter number (1-20)  Escape:cancel',
+    style: { fg: 'gray' },
+  });
+
   // Help screen dialog (hidden by default)
   const helpDialog = blessed.box({
     parent: screen,
@@ -190,7 +228,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 21,
+    height: 22,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -208,6 +246,7 @@ export function createApp() {
       '',
       '  {bold}VM Management{/bold}',
       '  c             Create a new agent VM',
+      '  C (shift)     Create multiple VMs at once',
       '  d             Delete selected VM',
       '  m             Mount VM filesystem (sshfs)',
       '  u             Unmount VM filesystem',
@@ -226,7 +265,7 @@ export function createApp() {
     ].join('\n'),
   });
 
-  const normalStatusText = ' c:create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:navigate  Enter:activate  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  Enter:activate  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -363,8 +402,8 @@ export function createApp() {
       hideHelp();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt') {
-      // In console/prompt mode, q goes to the input
+    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create') {
+      // In console/prompt/broadcast/bulk-create mode, q goes to the input
       return;
     }
     gracefulQuit();
@@ -458,6 +497,11 @@ export function createApp() {
     if (state.mode !== 'normal') return;
     if (state.vms.length === 0) return;
     showBroadcastInput();
+  });
+
+  screen.key(['S-c'], () => {
+    if (state.mode !== 'normal') return;
+    showBulkCreate();
   });
 
   screen.key(['?'], () => {
@@ -569,6 +613,40 @@ export function createApp() {
     statusBar.setContent(normalStatusText);
     screen.render();
   }
+
+  function showBulkCreate() {
+    state.mode = 'bulk-create';
+    bulkCreateDialog.show();
+    bulkCreateInput.setValue('');
+    bulkCreateInput.focus();
+    bulkCreateInput.readInput();
+    screen.render();
+  }
+
+  function hideBulkCreate() {
+    state.mode = 'normal';
+    bulkCreateDialog.hide();
+    bulkCreateInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  // Bulk create input submission
+  bulkCreateInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    hideBulkCreate();
+    if (text) {
+      const count = parseInt(text, 10);
+      if (count > 0 && count <= 20) {
+        handlers['bulk-create']?.(count);
+      }
+    }
+  });
+
+  // Bulk create input cancel
+  bulkCreateInput.on('cancel', () => {
+    hideBulkCreate();
+  });
 
   // History navigation for prompt input
   promptInput.on('keypress', (_ch: string, key: { name: string }) => {

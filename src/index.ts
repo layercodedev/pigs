@@ -174,6 +174,70 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Bulk create VMs handler
+  app.onKey('bulk-create', async (count: number) => {
+    state.mode = 'creating';
+    app.setStatusMessage(`Creating ${count} agent VMs...`);
+
+    let created = 0;
+    let failed = 0;
+
+    // Create all VMs in parallel
+    const createPromises = Array.from({ length: count }, async () => {
+      try {
+        const vm = await createVM(client);
+        vm.provisioningStatus = 'pending';
+        state.vms.push(vm);
+        created++;
+        app.setStatusMessage(`Created ${created}/${count} VMs...`);
+        app.render();
+        return vm;
+      } catch {
+        failed++;
+        return null;
+      }
+    });
+
+    const results = await Promise.all(createPromises);
+    const newVMs = results.filter((vm): vm is NonNullable<typeof vm> => vm !== null);
+
+    // Select the first new VM
+    if (newVMs.length > 0) {
+      state.sidebarSelectedIndex = state.vms.indexOf(newVMs[0]);
+      state.activeVmIndex = state.sidebarSelectedIndex;
+    }
+    state.mode = 'normal';
+
+    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    app.setStatusMessage(`Created ${created} VMs${failMsg}, provisioning...`);
+    app.render();
+
+    // Provision all new VMs in parallel
+    let provisioned = 0;
+    let provFailed = 0;
+    const provisionPromises = newVMs.map(async (vm) => {
+      vm.provisioningStatus = 'provisioning';
+      app.render();
+      try {
+        await provisionVM(client, vm.name, state.settings ?? undefined, () => {});
+        vm.provisioningStatus = 'done';
+        provisioned++;
+        app.setStatusMessage(`Provisioned ${provisioned}/${newVMs.length}${provFailed > 0 ? ` (${provFailed} failed)` : ''}...`);
+        app.render();
+      } catch {
+        vm.provisioningStatus = 'failed';
+        provFailed++;
+        app.render();
+      }
+    });
+
+    await Promise.all(provisionPromises);
+    const provFailMsg = provFailed > 0 ? ` (${provFailed} failed)` : '';
+    app.setStatusMessage(`${provisioned} VMs provisioned${provFailMsg}`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Delete VM handler
   app.onKey('delete', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];

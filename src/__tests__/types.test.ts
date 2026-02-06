@@ -141,4 +141,15 @@ describe('types', () => {
     };
     expect(state.mode).toBe('help');
   });
+
+  it('should support bulk-create mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'bulk-create',
+      settings: null,
+    };
+    expect(state.mode).toBe('bulk-create');
+  });
 });
