@@ -220,18 +220,39 @@ export function createApp() {
     handlers['console-input']?.(data);
   });
 
-  screen.key(['q', 'C-c'], () => {
+  let quitting = false;
+
+  async function gracefulQuit() {
+    if (quitting) return;
+    quitting = true;
+    try {
+      await handlers['quit']?.();
+    } catch {
+      // Best-effort cleanup
+    }
+    screen.destroy();
+    process.exit(0);
+  }
+
+  screen.key(['q'], () => {
     if (state.mode === 'confirm-delete') {
       hideConfirmDelete();
       return;
     }
     if (state.mode === 'console') {
-      // In console mode, q/Ctrl-C go to the VM
+      // In console mode, q goes to the VM
       return;
     }
-    handlers['quit']?.();
-    screen.destroy();
-    process.exit(0);
+    gracefulQuit();
+  });
+
+  screen.key(['C-c'], () => {
+    if (state.mode === 'confirm-delete') {
+      hideConfirmDelete();
+      return;
+    }
+    // Ctrl-C always quits, even from console mode
+    gracefulQuit();
   });
 
   screen.key(['j', 'down'], () => {

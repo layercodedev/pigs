@@ -186,3 +186,18 @@ Completed:
   - unmountAll: multi-mount cleanup, safe when empty
   - constants: key paths and mount directory
 - All 79 tests pass, typecheck clean, build succeeds
+
+## 2026-02-06 - Iteration 8: Graceful Exit
+
+Task: Exit gracefully - detach from active VM on quit, all VMs keep running in background
+
+Completed:
+- Updated src/tui.ts:
+  - Fixed async quit handler race condition: quit handler is now properly awaited before screen.destroy() and process.exit()
+  - Added `quitting` guard to prevent duplicate cleanup if quit is triggered multiple times
+  - Split q and Ctrl-C key handlers: q respects console mode (forwarded to VM), Ctrl-C always triggers quit even from console mode
+  - Wrapped quit handler in try/catch for best-effort cleanup
+- Updated src/index.ts:
+  - Added SIGTERM signal handler that runs the same graceful cleanup (stopMonitor, detachAll, unmountAll)
+  - Ensures VMs keep running when TUI exits (detachAll removes listeners without killing remote processes)
+- All 79 tests pass, typecheck clean

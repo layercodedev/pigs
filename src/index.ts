@@ -245,6 +245,15 @@ async function main() {
     detachAll();
     await unmountAll();
   });
+
+  // Handle OS signals for graceful shutdown
+  const signalHandler = async () => {
+    stopMonitor();
+    detachAll();
+    await unmountAll();
+    process.exit(0);
+  };
+  process.on('SIGTERM', signalHandler);
 }
 
 main().catch((err) => {
