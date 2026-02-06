@@ -146,7 +146,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}`,
+          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}`,
           tags: true,
         });
       });
@@ -157,13 +157,13 @@ export function createApp() {
   function renderMainView() {
     if (state.mode === 'console' && state.activeVmIndex >= 0 && state.vms[state.activeVmIndex]) {
       const vm = state.vms[state.activeVmIndex];
-      mainView.setLabel(` Console: ${vm.name} (attached) `);
+      mainView.setLabel(` Console: ${vm.displayLabel ?? vm.name} (attached) `);
       mainView.style.border = { fg: 'yellow' };
       noVmMessage.hide();
       terminal.show();
     } else if (state.activeVmIndex >= 0 && state.vms[state.activeVmIndex]) {
       const vm = state.vms[state.activeVmIndex];
-      mainView.setLabel(` Console: ${vm.name} `);
+      mainView.setLabel(` Console: ${vm.displayLabel ?? vm.name} `);
       mainView.style.border = { fg: 'green' };
       noVmMessage.hide();
       terminal.show();

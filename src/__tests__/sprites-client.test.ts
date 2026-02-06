@@ -65,6 +65,7 @@ describe('spriteToVM', () => {
       status: 'running',
       createdAt: '2026-01-15T10:00:00.000Z',
       needsAttention: false,
+      displayLabel: 'abc123',
     });
   });
 
@@ -92,6 +93,19 @@ describe('spriteToVM', () => {
 
     const vm = spriteToVM(sprite);
     expect(vm.status).toBe('cold');
+  });
+
+  it('should set displayLabel to last 6 chars of name', () => {
+    const sprite = {
+      name: 'pigs-abc123',
+      id: 'uuid-123',
+      status: 'running',
+      createdAt: new Date('2026-01-15T10:00:00Z'),
+      client: {} as any,
+    } as any;
+
+    const vm = spriteToVM(sprite);
+    expect(vm.displayLabel).toBe('abc123');
   });
 
   it('should use current time as fallback when createdAt is undefined', () => {

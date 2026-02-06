@@ -216,3 +216,30 @@ Completed:
 - Updated src/__tests__/types.test.ts: added 2 tests for openInVscode field (true and undefined)
 - Updated src/__tests__/provisioner.test.ts: added test verifying default settings include openInVscode: true
 - All 82 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 10: Dynamic Agent Labels
+
+Task: Agents labelled with VM ID suffix by default, change to "dirname:gitbranchname" when in a git repo
+
+Completed:
+- Updated src/types.ts: added optional `displayLabel` field to VM interface
+- Updated src/notification-monitor.ts:
+  - Added `defaultLabel()` helper returning last 6 chars of VM name (e.g. "abc123")
+  - Added `checkGitLabel()` that runs `git rev-parse --show-toplevel --abbrev-ref HEAD` on the VM
+  - When in a git repo, sets `displayLabel` to "dirname:branch" (e.g. "myproject:main")
+  - Falls back to default label (last 6 chars of VM name) when not in a git repo
+  - Integrated into existing `pollAll()` loop so labels update every 5s alongside attention checks
+- Updated src/sprites-client.ts:
+  - `spriteToVM()` now sets `displayLabel` to `defaultLabel(name)` on creation/load
+  - Imports `defaultLabel` from notification-monitor module
+- Updated src/tui.ts:
+  - Sidebar VM cards now display `vm.displayLabel ?? vm.name` instead of `vm.name`
+  - Console label shows `displayLabel` in both attached and detached states
+- Created tests in notification-monitor.test.ts: 7 new tests for `defaultLabel` and `_checkGitLabel` covering:
+  - Git repo detection (dirname:branch format), nested path basename extraction
+  - Fallback to default label when not in git repo
+  - No-change detection (returns false when label unchanged)
+- Updated sprites-client.test.ts: added test for displayLabel in spriteToVM, updated toEqual assertion
+- Updated types.test.ts: added 2 tests for displayLabel field (set and undefined)
+- Updated 2 existing pollAll tests to account for git label checking behavior
+- All 92 tests pass, typecheck clean

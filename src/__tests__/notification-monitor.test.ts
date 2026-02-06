@@ -3,11 +3,13 @@ import {
   startMonitor,
   stopMonitor,
   clearAttention,
+  defaultLabel,
   CLAUDE_HOOKS_CONFIG,
   STOP_HOOK_COMMAND,
   SIGNAL_FILE,
   _pollAll,
   _checkSignal,
+  _checkGitLabel,
 } from '../notification-monitor.js';
 import type { VM } from '../types.js';
 
@@ -139,22 +141,25 @@ describe('notification-monitor', () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
-    it('should skip VMs that already need attention', async () => {
-      const mockSprite = createMockSprite();
+    it('should skip signal check for VMs that already need attention but still check git', async () => {
+      const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
       const client = createMockClient(mockSprite);
-      const vm = createVM({ needsAttention: true });
+      const vm = createVM({ needsAttention: true, displayLabel: 'abc123' });
       const onChange = vi.fn();
 
       await _pollAll(client, [vm], onChange);
 
-      expect(mockSprite.exec).not.toHaveBeenCalled();
-      expect(onChange).not.toHaveBeenCalled();
+      // Should only be called once (git check), not twice (signal + git)
+      expect(mockSprite.exec).toHaveBeenCalledTimes(1);
+      expect(mockSprite.exec).toHaveBeenCalledWith(
+        expect.stringContaining('git rev-parse'),
+      );
     });
 
-    it('should not call onChange when no signal found', async () => {
+    it('should not call onChange when no signal found and label unchanged', async () => {
       const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
       const client = createMockClient(mockSprite);
-      const vm = createVM();
+      const vm = createVM({ displayLabel: 'abc123' }); // already has default label
       const onChange = vi.fn();
 
       await _pollAll(client, [vm], onChange);
@@ -187,6 +192,94 @@ describe('notification-monitor', () => {
       expect(vm1.needsAttention).toBe(true);
       expect(vm2.needsAttention).toBe(true);
       expect(onChange).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('defaultLabel', () => {
+    it('should return last 6 chars of VM name', () => {
+      expect(defaultLabel('pigs-abc123')).toBe('abc123');
+    });
+
+    it('should handle short names', () => {
+      expect(defaultLabel('abc')).toBe('abc');
+    });
+  });
+
+  describe('_checkGitLabel', () => {
+    it('should set displayLabel to dirname:branch when in a git repo', async () => {
+      const mockSprite = createMockSprite({
+        stdout: '/root/myproject\nmain\n',
+        stderr: '',
+        exitCode: 0,
+      });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ displayLabel: 'abc123' });
+
+      const changed = await _checkGitLabel(client, vm);
+
+      expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
+      expect(mockSprite.exec).toHaveBeenCalledWith(
+        expect.stringContaining('git rev-parse'),
+      );
+      expect(vm.displayLabel).toBe('myproject:main');
+      expect(changed).toBe(true);
+    });
+
+    it('should use directory basename not full path', async () => {
+      const mockSprite = createMockSprite({
+        stdout: '/home/user/deep/nested/repo\nfeature-branch\n',
+        stderr: '',
+        exitCode: 0,
+      });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ displayLabel: 'abc123' });
+
+      await _checkGitLabel(client, vm);
+
+      expect(vm.displayLabel).toBe('repo:feature-branch');
+    });
+
+    it('should fall back to default label when not in git repo', async () => {
+      const mockSprite = createMockSprite({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ name: 'pigs-xyz789', displayLabel: 'myproject:main' });
+
+      const changed = await _checkGitLabel(client, vm);
+
+      expect(vm.displayLabel).toBe('xyz789');
+      expect(changed).toBe(true);
+    });
+
+    it('should return false when label has not changed', async () => {
+      const mockSprite = createMockSprite({
+        stdout: '/root/myproject\nmain\n',
+        stderr: '',
+        exitCode: 0,
+      });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ displayLabel: 'myproject:main' });
+
+      const changed = await _checkGitLabel(client, vm);
+
+      expect(changed).toBe(false);
+    });
+
+    it('should return false when default label unchanged', async () => {
+      const mockSprite = createMockSprite({
+        stdout: '',
+        stderr: '',
+        exitCode: 0,
+      });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ name: 'pigs-abc123', displayLabel: 'abc123' });
+
+      const changed = await _checkGitLabel(client, vm);
+
+      expect(changed).toBe(false);
     });
   });
 

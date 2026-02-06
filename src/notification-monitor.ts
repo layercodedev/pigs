@@ -62,7 +62,7 @@ export function stopMonitor(): void {
 }
 
 /**
- * Check all running, provisioned VMs for the done-signal file.
+ * Check all running, provisioned VMs for the done-signal file and git repo info.
  */
 async function pollAll(
   client: SpritesClient,
@@ -70,17 +70,31 @@ async function pollAll(
   onChange: () => void,
 ): Promise<void> {
   const candidates = vms.filter(
-    (vm) => vm.provisioningStatus === 'done' && !vm.needsAttention,
+    (vm) => vm.provisioningStatus === 'done',
   );
 
   for (const vm of candidates) {
+    let changed = false;
     try {
-      await checkSignal(client, vm);
-      if (vm.needsAttention) {
-        onChange();
+      if (!vm.needsAttention) {
+        await checkSignal(client, vm);
+        if (vm.needsAttention) {
+          changed = true;
+        }
       }
     } catch {
       // Ignore poll errors (VM may be cold/stopped)
+    }
+    try {
+      const labelChanged = await checkGitLabel(client, vm);
+      if (labelChanged) {
+        changed = true;
+      }
+    } catch {
+      // Ignore git check errors
+    }
+    if (changed) {
+      onChange();
     }
   }
 }
@@ -103,5 +117,38 @@ export function clearAttention(vm: VM): void {
   vm.needsAttention = false;
 }
 
+/**
+ * Return the default display label for a VM: last 6 chars of the VM name.
+ */
+export function defaultLabel(vmName: string): string {
+  return vmName.slice(-6);
+}
+
+/**
+ * Check a VM for a git repo and update displayLabel to "dirname:branch" if found.
+ * Falls back to the last 6 chars of the VM name when not in a git repo.
+ * Returns true if the label changed.
+ */
+async function checkGitLabel(client: SpritesClient, vm: VM): Promise<boolean> {
+  const sprite = client.sprite(vm.name);
+  const { stdout } = await sprite.exec(
+    'cd /root && git rev-parse --show-toplevel --abbrev-ref HEAD 2>/dev/null || true',
+  );
+  const lines = String(stdout).trim().split('\n').filter(Boolean);
+  let newLabel: string;
+  if (lines.length === 2) {
+    const dirName = lines[0].split('/').pop() || lines[0];
+    const branch = lines[1];
+    newLabel = `${dirName}:${branch}`;
+  } else {
+    newLabel = defaultLabel(vm.name);
+  }
+  if (vm.displayLabel !== newLabel) {
+    vm.displayLabel = newLabel;
+    return true;
+  }
+  return false;
+}
+
 // Expose for testing
-export { pollAll as _pollAll, checkSignal as _checkSignal, SIGNAL_FILE, POLL_INTERVAL_MS };
+export { pollAll as _pollAll, checkSignal as _checkSignal, checkGitLabel as _checkGitLabel, SIGNAL_FILE, POLL_INTERVAL_MS };

@@ -1,6 +1,7 @@
 import { SpritesClient } from '@fly/sprites';
 import type { Sprite } from '@fly/sprites';
 import type { VM } from './types.js';
+import { defaultLabel } from './notification-monitor.js';
 
 const VM_PREFIX = 'pigs-';
 
@@ -13,12 +14,14 @@ export function createSpritesClient(): SpritesClient {
 }
 
 export function spriteToVM(sprite: Sprite): VM {
+  const name = sprite.name;
   return {
-    name: sprite.name,
-    id: sprite.id ?? sprite.name,
+    name,
+    id: sprite.id ?? name,
     status: (sprite.status as VM['status']) ?? 'cold',
     createdAt: sprite.createdAt?.toISOString() ?? new Date().toISOString(),
     needsAttention: false,
+    displayLabel: defaultLabel(name),
   };
 }
 

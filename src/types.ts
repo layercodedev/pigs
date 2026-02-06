@@ -6,6 +6,7 @@ export interface VM {
   needsAttention: boolean;
   provisioningStatus?: 'pending' | 'provisioning' | 'done' | 'failed';
   mountPath?: string;
+  displayLabel?: string;
 }
 
 export interface PigsSettings {

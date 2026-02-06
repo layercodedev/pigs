@@ -85,4 +85,27 @@ describe('types', () => {
     };
     expect(settings.openInVscode).toBeUndefined();
   });
+
+  it('should support displayLabel on VM', () => {
+    const vm: VM = {
+      name: 'pigs-abc123',
+      id: 'pigs-abc123',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+      displayLabel: 'myproject:main',
+    };
+    expect(vm.displayLabel).toBe('myproject:main');
+  });
+
+  it('should allow displayLabel to be undefined', () => {
+    const vm: VM = {
+      name: 'pigs-abc123',
+      id: 'pigs-abc123',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+    };
+    expect(vm.displayLabel).toBeUndefined();
+  });
 });
