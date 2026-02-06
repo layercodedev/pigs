@@ -45,6 +45,7 @@ export async function loadSettings(): Promise<PigsSettings> {
 export async function provisionVM(
   client: SpritesClient,
   vmName: string,
+  settings?: PigsSettings,
   onLog?: (msg: string) => void,
 ): Promise<void> {
   const sprite = client.sprite(vmName);
@@ -57,8 +58,8 @@ export async function provisionVM(
 
   // Step 2: Write CLAUDE.md from settings using base64 to avoid escaping issues
   log('Writing CLAUDE.md...');
-  const settings = await loadSettings();
-  const b64 = Buffer.from(settings.claudeMd).toString('base64');
+  const resolvedSettings = settings ?? await loadSettings();
+  const b64 = Buffer.from(resolvedSettings.claudeMd).toString('base64');
   await sprite.exec(`echo '${b64}' | base64 -d > /root/CLAUDE.md`);
   log('CLAUDE.md written.');
 }

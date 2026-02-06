@@ -21,10 +21,24 @@ describe('types', () => {
       activeVmIndex: -1,
       sidebarSelectedIndex: 0,
       mode: 'normal',
+      settings: null,
     };
     expect(state.vms).toHaveLength(0);
     expect(state.activeVmIndex).toBe(-1);
     expect(state.mode).toBe('normal');
+    expect(state.settings).toBeNull();
+  });
+
+  it('should allow AppState with loaded settings', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'normal',
+      settings: { claudeMd: '# My instructions' },
+    };
+    expect(state.settings).not.toBeNull();
+    expect(state.settings!.claudeMd).toBe('# My instructions');
   });
 
   it('should support provisioningStatus on VM', () => {

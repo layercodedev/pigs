@@ -11,7 +11,7 @@ import {
   detachAll,
   getSession,
 } from './console-session.js';
-import { provisionVM } from './provisioner.js';
+import { loadSettings, provisionVM } from './provisioner.js';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
@@ -25,6 +25,13 @@ async function main() {
 
   const app = createApp();
   const { state } = app;
+
+  // Load settings on first run (creates ~/.pigs/settings.json if missing)
+  try {
+    state.settings = await loadSettings();
+  } catch (err: any) {
+    app.setStatusMessage(`Warning: Could not load settings: ${err.message}`);
+  }
 
   // Load existing VMs
   app.setStatusMessage('Loading VMs...');
@@ -135,7 +142,7 @@ async function main() {
       app.setStatusMessage(`Provisioning ${vm.name}...`);
       app.render();
       try {
-        await provisionVM(client, vm.name, (msg) => {
+        await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
           app.setStatusMessage(`${vm.name}: ${msg}`);
         });
         vm.provisioningStatus = 'done';

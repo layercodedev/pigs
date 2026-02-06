@@ -13,6 +13,7 @@ export function createApp() {
     activeVmIndex: -1,
     sidebarSelectedIndex: 0,
     mode: 'normal',
+    settings: null,
   };
 
   // Sidebar: list of VMs on the left

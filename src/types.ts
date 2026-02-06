@@ -16,4 +16,5 @@ export interface AppState {
   activeVmIndex: number;
   sidebarSelectedIndex: number;
   mode: 'normal' | 'confirm-delete' | 'creating' | 'console';
+  settings: PigsSettings | null;
 }

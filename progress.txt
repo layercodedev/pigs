@@ -96,3 +96,25 @@ Completed:
   - provisionVM: exec calls for provisioning script, base64-encoded CLAUDE.md writing, onLog callbacks, error propagation, no-callback usage, default settings creation
 - Updated src/__tests__/types.test.ts with 3 new tests for provisioningStatus and PigsSettings
 - All 44 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 5: Settings Setup
+
+Task: Create ~/.pigs/settings.json on first run with default CLAUDE.md content and config
+
+Completed:
+- Updated src/types.ts: added `settings: PigsSettings | null` field to AppState so settings are available app-wide
+- Updated src/tui.ts: initialized `settings: null` in default AppState
+- Updated src/index.ts:
+  - Loads settings at app startup via `loadSettings()` before loading VMs
+  - Creates ~/.pigs/settings.json with default CLAUDE.md content on first run if missing
+  - Stores loaded settings in `state.settings` for use throughout app lifecycle
+  - Passes loaded settings to `provisionVM()` to avoid redundant disk reads
+- Updated src/provisioner.ts:
+  - `provisionVM()` now accepts optional `settings` parameter
+  - Uses provided settings directly when available, falls back to `loadSettings()` if not passed
+- Updated src/__tests__/types.test.ts: added test for AppState with loaded settings
+- Updated src/__tests__/provisioner.test.ts:
+  - Tests now pass settings directly to `provisionVM()` where appropriate
+  - Added test for fallback to `loadSettings()` when no settings are provided
+  - Added test verifying provided settings are used without reading from disk
+- All 46 tests pass, typecheck clean

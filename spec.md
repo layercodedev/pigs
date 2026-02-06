@@ -6,7 +6,7 @@ I want you to build me a command-line TUI application that runs on macOS, that i
 - [x] Integrate Sprites API: list existing VMs on startup, create VM (with `pigs-` prefix), delete VM with confirmation dialog
 - [x] SSH console session: attach to active VM console via sprites exec TTY, pipe stdin/stdout, detach on switch
 - [x] VM provisioning: on create, install Claude code + SSH via exec, copy CLAUDE.md content from ~/.pigs/settings.json
-- [ ] Settings setup: create ~/.pigs/settings.json on first run with default CLAUDE.md content and config
+- [x] Settings setup: create ~/.pigs/settings.json on first run with default CLAUDE.md content and config
 - [ ] Notification hook: Claude code finish hook sends signal, TUI polls/listens and shows attention indicator on VM card
 - [ ] Mount VM filesystem: key command to mount sprite FS locally over SSH
 - [ ] Exit gracefully: detach from active VM on quit, all VMs keep running in background
