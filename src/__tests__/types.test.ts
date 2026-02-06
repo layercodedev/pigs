@@ -130,4 +130,15 @@ describe('types', () => {
     };
     expect(state.mode).toBe('broadcast');
   });
+
+  it('should support help mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'help',
+      settings: null,
+    };
+    expect(state.mode).toBe('help');
+  });
 });

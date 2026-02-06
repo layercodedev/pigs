@@ -9,3 +9,14 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for broadcast mode
 
 All 94 tests pass. Type checks clean.
+
+## Help Screen Feature
+
+Added help screen overlay (press `?`) that displays all keybindings in a modal dialog. Essential for TUI discoverability — users can quickly reference all available commands without leaving the app.
+
+Changes:
+- `src/types.ts`: Added `'help'` to AppState mode union
+- `src/tui.ts`: Added help dialog (cyan border, 60x20), `?` keybinding to toggle, Escape/q to close, organized keybindings by category (Navigation, VM Management, Prompts, Other). Updated status bar to include `?:help`
+- `src/__tests__/types.test.ts`: Added test for help mode
+
+All 95 tests pass. Type checks clean.

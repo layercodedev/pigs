@@ -182,7 +182,49 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
-  const normalStatusText = ' c:create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit';
+  // Help screen dialog (hidden by default)
+  const helpDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 60,
+    height: 20,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'cyan' },
+      bg: 'black',
+    },
+    label: ' Help — Keybindings ',
+    tags: true,
+    content: [
+      '',
+      '  {bold}Navigation{/bold}',
+      '  j / ↓         Move selection down',
+      '  k / ↑         Move selection up',
+      '  Enter         Attach console to selected VM',
+      '  Escape        Detach from console',
+      '',
+      '  {bold}VM Management{/bold}',
+      '  c             Create a new agent VM',
+      '  d             Delete selected VM',
+      '  m             Mount VM filesystem (sshfs)',
+      '  u             Unmount VM filesystem',
+      '',
+      '  {bold}Prompts{/bold}',
+      '  p             Send prompt to selected VM',
+      '  b             Broadcast prompt to all VMs',
+      '',
+      '  {bold}Other{/bold}',
+      '  ?             Toggle this help screen',
+      '  q             Quit',
+      '  Ctrl-C        Force quit',
+      '',
+      '  {gray-fg}Press ? or Escape to close{/gray-fg}',
+    ].join('\n'),
+  });
+
+  const normalStatusText = ' c:create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:navigate  Enter:activate  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -315,6 +357,10 @@ export function createApp() {
       hideConfirmDelete();
       return;
     }
+    if (state.mode === 'help') {
+      hideHelp();
+      return;
+    }
     if (state.mode === 'console' || state.mode === 'prompt') {
       // In console/prompt mode, q goes to the input
       return;
@@ -412,6 +458,22 @@ export function createApp() {
     showBroadcastInput();
   });
 
+  screen.key(['?'], () => {
+    if (state.mode === 'console') return;
+    if (state.mode === 'help') {
+      hideHelp();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    showHelp();
+  });
+
+  screen.key(['escape'], () => {
+    if (state.mode === 'help') {
+      hideHelp();
+    }
+  });
+
   // Handle screen resize for console sessions
   screen.on('resize', () => {
     const cols = (mainView.width as number) - 2; // subtract border
@@ -469,6 +531,19 @@ export function createApp() {
     promptDialog.hide();
     promptInput.cancel();
     statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  function showHelp() {
+    state.mode = 'help';
+    helpDialog.show();
+    helpDialog.focus();
+    screen.render();
+  }
+
+  function hideHelp() {
+    state.mode = 'normal';
+    helpDialog.hide();
     screen.render();
   }
 
