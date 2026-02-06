@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { enqueue, dequeue, peek, getQueue, queueSize, clearQueue, clearAllQueues } from '../prompt-queue.js';
+import { enqueue, dequeue, peek, getQueue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from '../prompt-queue.js';
 
 describe('prompt-queue', () => {
   beforeEach(() => {
@@ -97,5 +97,42 @@ describe('prompt-queue', () => {
 
   it('should handle queueSize for unknown VM', () => {
     expect(queueSize('unknown')).toBe(0);
+  });
+
+  it('should remove a prompt at a specific index', () => {
+    enqueue('vm1', 'first');
+    enqueue('vm1', 'second');
+    enqueue('vm1', 'third');
+    const removed = removeFromQueue('vm1', 1);
+    expect(removed).toBe('second');
+    expect(getQueue('vm1')).toEqual(['first', 'third']);
+    expect(queueSize('vm1')).toBe(2);
+  });
+
+  it('should return undefined when removing from out-of-range index', () => {
+    enqueue('vm1', 'only');
+    expect(removeFromQueue('vm1', 5)).toBeUndefined();
+    expect(removeFromQueue('vm1', -1)).toBeUndefined();
+    expect(queueSize('vm1')).toBe(1);
+  });
+
+  it('should return undefined when removing from unknown VM', () => {
+    expect(removeFromQueue('unknown', 0)).toBeUndefined();
+  });
+
+  it('should remove the first item correctly', () => {
+    enqueue('vm1', 'a');
+    enqueue('vm1', 'b');
+    enqueue('vm1', 'c');
+    expect(removeFromQueue('vm1', 0)).toBe('a');
+    expect(getQueue('vm1')).toEqual(['b', 'c']);
+  });
+
+  it('should remove the last item correctly', () => {
+    enqueue('vm1', 'a');
+    enqueue('vm1', 'b');
+    enqueue('vm1', 'c');
+    expect(removeFromQueue('vm1', 2)).toBe('c');
+    expect(getQueue('vm1')).toEqual(['a', 'b']);
   });
 });

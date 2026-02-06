@@ -17,7 +17,7 @@ import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
 import { loadHistory, addToHistory } from './prompt-history.js';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
 import { exportLog } from './log-export.js';
-import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues } from './prompt-queue.js';
+import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -540,6 +540,26 @@ async function main() {
       app.setStatusMessage(`Export failed: ${err.message}`);
     }
     setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Queue remove handler - remove a single prompt from the queue at a given index
+  app.onKey('queue-remove', (index: number) => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    const removed = removeFromQueue(vm.name, index);
+    if (removed) {
+      app.renderQueueViewer(vm);
+      app.render();
+    }
+  });
+
+  // Queue clear handler - clear all prompts from the selected VM's queue
+  app.onKey('queue-clear', () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    clearQueue(vm.name);
+    app.renderQueueViewer(vm);
+    app.render();
   });
 
   // Mount VM filesystem handler

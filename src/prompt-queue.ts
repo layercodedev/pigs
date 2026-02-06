@@ -49,6 +49,16 @@ export function queueSize(vmName: string): number {
 }
 
 /**
+ * Remove a prompt at a specific index from a VM's queue.
+ * Returns the removed prompt, or undefined if index is out of range.
+ */
+export function removeFromQueue(vmName: string, index: number): string | undefined {
+  const q = queues.get(vmName);
+  if (!q || index < 0 || index >= q.length) return undefined;
+  return q.splice(index, 1)[0];
+}
+
+/**
  * Clear all queued prompts for a VM.
  */
 export function clearQueue(vmName: string): void {

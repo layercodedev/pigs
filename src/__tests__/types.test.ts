@@ -323,4 +323,17 @@ describe('types', () => {
     };
     expect(state.mode).toBe('broadcast-queue');
   });
+
+  it('should support queue-viewer mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'queue-viewer',
+      settings: null,
+      searchFilter: '',
+      sortMode: 'default',
+    };
+    expect(state.mode).toBe('queue-viewer');
+  });
 });

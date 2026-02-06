@@ -247,3 +247,17 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for broadcast-queue mode.
 
 All 244 tests pass. Type checks clean.
+
+## Queue Viewer Feature
+
+Added queue viewer (press `v`) to view and manage the prompt queue for the selected VM. Essential for queue management — when orchestrating multi-step autonomous workflows with queued prompts (Q/B), you need to see what's pending, remove incorrect entries, or clear the queue entirely. The viewer shows a numbered, scrollable list of all queued prompts with j/k navigation, `d` to remove the selected prompt, `X` (Shift-X) to clear the entire queue, and Escape/q to close. Queue count updates live in both the viewer title and the sidebar.
+
+Changes:
+- `src/types.ts`: Added `'queue-viewer'` to AppState mode union
+- `src/prompt-queue.ts`: Added `removeFromQueue(vmName, index)` function to remove a prompt at a specific index from a VM's queue
+- `src/tui.ts`: Added queue viewer overlay (magenta border, 70% width, 60% height, scrollable). Added `v` keybinding in normal mode. Added `showQueueViewer()`/`hideQueueViewer()`/`renderQueueViewer()` functions with numbered prompt list and selection highlighting. Added j/k navigation within queue viewer, `d` to remove selected item, `S-x` to clear all. Updated `q`/`Escape` handlers to close queue viewer. Updated help screen with new keybinding (increased dialog height to 41). Updated status bar to include `v:view-queue`. Exposed `renderQueueViewer()` method for live updates after modifications.
+- `src/index.ts`: Added `queue-remove` handler that calls `removeFromQueue()` at the selected index. Added `queue-clear` handler that calls `clearQueue()` for the selected VM. Both handlers re-render the queue viewer and sidebar after modification.
+- `src/__tests__/prompt-queue.test.ts`: 5 new tests for `removeFromQueue` covering middle index removal, out-of-range index, unknown VM, first item removal, and last item removal.
+- `src/__tests__/types.test.ts`: Added test for queue-viewer mode.
+
+All 250 tests pass. Type checks clean.

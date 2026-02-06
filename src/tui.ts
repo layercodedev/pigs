@@ -2,7 +2,7 @@ import blessed from 'blessed';
 import type { AppState, SortMode, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 import { getOutput } from './output-buffer.js';
-import { queueSize } from './prompt-queue.js';
+import { queueSize, getQueue } from './prompt-queue.js';
 import { stripAnsi } from './ansi.js';
 
 /**
@@ -241,7 +241,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -419,7 +419,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 40,
+    height: 41,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -455,6 +455,7 @@ export function createApp() {
       '  B (shift)     Queue prompt to ALL VMs (broadcast queue)',
       '  x             Stop/cancel running agent (sends Ctrl-C)',
       '  o             Export VM console log to ~/.pigs/logs/',
+      '  v             View/manage prompt queue for selected VM',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
@@ -614,6 +615,33 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
+  // Queue viewer overlay (hidden by default)
+  const queueViewerOverlay = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '70%',
+    height: '60%',
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'magenta' },
+      bg: 'black',
+      label: { fg: 'white', bold: true },
+    },
+    label: ' Queue Viewer ',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+      style: { bg: 'gray' },
+    },
+    mouse: true,
+    keys: true,
+  });
+
+  let queueViewerSelectedIndex = 0;
+
   // Search dialog (hidden by default)
   const searchDialog = blessed.box({
     parent: screen,
@@ -644,7 +672,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -845,6 +873,10 @@ export function createApp() {
       hideDashboard();
       return;
     }
+    if (state.mode === 'queue-viewer') {
+      hideQueueViewer();
+      return;
+    }
     if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue') {
       // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
@@ -870,6 +902,17 @@ export function createApp() {
   });
 
   screen.key(['j', 'down'], () => {
+    if (state.mode === 'queue-viewer') {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (!vm) return;
+      const queue = getQueue(vm.name);
+      if (queueViewerSelectedIndex < queue.length - 1) {
+        queueViewerSelectedIndex++;
+        renderQueueViewer(vm);
+        screen.render();
+      }
+      return;
+    }
     if (state.mode !== 'normal') return;
     const displayed = getFilteredVMs();
     if (displayed.length > 0) {
@@ -885,6 +928,16 @@ export function createApp() {
   });
 
   screen.key(['k', 'up'], () => {
+    if (state.mode === 'queue-viewer') {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (!vm) return;
+      if (queueViewerSelectedIndex > 0) {
+        queueViewerSelectedIndex--;
+        renderQueueViewer(vm);
+        screen.render();
+      }
+      return;
+    }
     if (state.mode !== 'normal') return;
     const displayed = getFilteredVMs();
     if (displayed.length > 0) {
@@ -914,6 +967,14 @@ export function createApp() {
   });
 
   screen.key(['d'], () => {
+    if (state.mode === 'queue-viewer') {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (!vm) return;
+      handlers['queue-remove']?.(queueViewerSelectedIndex);
+      renderQueueViewer(vm);
+      screen.render();
+      return;
+    }
     if (state.mode !== 'normal') return;
     if (state.vms.length > 0) {
       const vm = state.vms[state.sidebarSelectedIndex];
@@ -1034,6 +1095,18 @@ export function createApp() {
     handlers['stop-agent']?.();
   });
 
+  screen.key(['S-x'], () => {
+    if (state.mode === 'queue-viewer') {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (!vm) return;
+      handlers['queue-clear']?.();
+      queueViewerSelectedIndex = 0;
+      renderQueueViewer(vm);
+      screen.render();
+      return;
+    }
+  });
+
   screen.key(['t'], () => {
     if (state.mode !== 'normal') return;
     if (state.vms.length === 0) return;
@@ -1048,6 +1121,14 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     handlers['export-log']?.();
+  });
+
+  screen.key(['v'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    showQueueViewer(vm);
   });
 
   screen.key(['s'], () => {
@@ -1086,6 +1167,9 @@ export function createApp() {
     }
     if (state.mode === 'dashboard') {
       hideDashboard();
+    }
+    if (state.mode === 'queue-viewer') {
+      hideQueueViewer();
     }
     if (state.mode === 'normal' && state.searchFilter) {
       clearSearch();
@@ -1297,6 +1381,54 @@ export function createApp() {
   function clearSearch() {
     state.searchFilter = '';
     render();
+  }
+
+  function showQueueViewer(vm: VM) {
+    state.mode = 'queue-viewer';
+    queueViewerSelectedIndex = 0;
+    renderQueueViewer(vm);
+    queueViewerOverlay.show();
+    queueViewerOverlay.focus();
+    statusBar.setContent(' j/k:navigate  d:remove  X:clear all  Escape:close');
+    screen.render();
+  }
+
+  function hideQueueViewer() {
+    state.mode = 'normal';
+    queueViewerOverlay.hide();
+    statusBar.setContent(normalStatusText);
+    render();
+  }
+
+  function renderQueueViewer(vm: VM) {
+    const queue = getQueue(vm.name);
+    const label = vm.displayLabel ?? vm.name;
+    queueViewerOverlay.setLabel(` Queue: ${label} (${queue.length} prompt${queue.length !== 1 ? 's' : ''}) `);
+
+    if (queue.length === 0) {
+      queueViewerOverlay.setContent('\n  {gray-fg}Queue is empty{/gray-fg}\n\n  Press {bold}Q{/bold} (Shift-Q) to add prompts to the queue.');
+      return;
+    }
+
+    // Clamp selection
+    if (queueViewerSelectedIndex >= queue.length) {
+      queueViewerSelectedIndex = Math.max(0, queue.length - 1);
+    }
+
+    const lines: string[] = [''];
+    queue.forEach((prompt, i) => {
+      const isSelected = i === queueViewerSelectedIndex;
+      const marker = isSelected ? '{yellow-fg}>{/yellow-fg}' : ' ';
+      const num = `${i + 1}.`.padEnd(4);
+      const truncated = prompt.length > 60 ? prompt.slice(0, 57) + '...' : prompt;
+      const highlight = isSelected ? '{bold}' : '{gray-fg}';
+      const highlightEnd = isSelected ? '{/bold}' : '{/gray-fg}';
+      lines.push(`  ${marker} ${highlight}${num}${truncated}${highlightEnd}`);
+    });
+    lines.push('');
+    lines.push('  {gray-fg}d:remove selected  X:clear all  Escape:close{/gray-fg}');
+
+    queueViewerOverlay.setContent(lines.join('\n'));
   }
 
   function showDashboard() {
@@ -1579,6 +1711,12 @@ export function createApp() {
     renderDashboard() {
       if (state.mode === 'dashboard') {
         renderDashboard();
+        screen.render();
+      }
+    },
+    renderQueueViewer(vm: VM) {
+      if (state.mode === 'queue-viewer') {
+        renderQueueViewer(vm);
         screen.render();
       }
     },
