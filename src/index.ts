@@ -11,6 +11,7 @@ import {
   detachAll,
   getSession,
 } from './console-session.js';
+import { provisionVM } from './provisioner.js';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
@@ -122,14 +123,31 @@ async function main() {
     app.setStatusMessage('Creating new agent VM...');
     try {
       const vm = await createVM(client);
+      vm.provisioningStatus = 'pending';
       state.vms.push(vm);
       state.sidebarSelectedIndex = state.vms.length - 1;
       state.activeVmIndex = state.vms.length - 1;
-      app.setStatusMessage(`Created VM: ${vm.name}`);
+      state.mode = 'normal';
+      app.render();
+
+      // Provision in background
+      vm.provisioningStatus = 'provisioning';
+      app.setStatusMessage(`Provisioning ${vm.name}...`);
+      app.render();
+      try {
+        await provisionVM(client, vm.name, (msg) => {
+          app.setStatusMessage(`${vm.name}: ${msg}`);
+        });
+        vm.provisioningStatus = 'done';
+        app.setStatusMessage(`${vm.name} provisioned`);
+      } catch (err: any) {
+        vm.provisioningStatus = 'failed';
+        app.setStatusMessage(`Provisioning failed: ${err.message}`);
+      }
     } catch (err: any) {
       app.setStatusMessage(`Error creating VM: ${err.message}`);
+      state.mode = 'normal';
     }
-    state.mode = 'normal';
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });

@@ -70,3 +70,29 @@ Completed:
   - detachAll: multi-session detach
   - getActiveSessionNames: tracking
 - All 32 tests pass, typecheck clean, build succeeds
+
+## 2026-02-06 - Iteration 4: VM Provisioning
+
+Task: On create, install Claude Code + SSH via exec, copy CLAUDE.md content from ~/.pigs/settings.json
+
+Completed:
+- Created src/provisioner.ts module for VM provisioning via Sprites exec API
+  - `loadSettings()` reads ~/.pigs/settings.json, creates default if missing (with default CLAUDE.md content)
+  - `provisionVM()` runs provisioning in two steps via `sprite.exec()`:
+    1. Installs Claude Code globally (`npm install -g @anthropic-ai/claude-code`) and ensures SSH server is running
+    2. Writes CLAUDE.md to /root/ using base64 encoding to avoid shell escaping issues
+  - Accepts optional `onLog` callback for progress reporting to TUI status bar
+- Updated src/types.ts:
+  - Added `provisioningStatus` optional field to VM: 'pending' | 'provisioning' | 'done' | 'failed'
+  - Added `PigsSettings` interface with `claudeMd` field
+- Updated src/index.ts:
+  - Create handler now triggers provisioning after VM creation (runs in background)
+  - Shows provisioning progress in status bar via onLog callback
+  - Sets provisioningStatus through lifecycle: pending → provisioning → done/failed
+- Updated src/tui.ts:
+  - Sidebar VM cards now show provisioning status labels: [setup], [wait], [fail]
+- Created src/__tests__/provisioner.test.ts with 9 tests covering:
+  - loadSettings: reading existing file, creating defaults when missing, valid JSON output
+  - provisionVM: exec calls for provisioning script, base64-encoded CLAUDE.md writing, onLog callbacks, error propagation, no-callback usage, default settings creation
+- Updated src/__tests__/types.test.ts with 3 new tests for provisioningStatus and PigsSettings
+- All 44 tests pass, typecheck clean

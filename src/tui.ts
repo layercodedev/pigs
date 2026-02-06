@@ -128,6 +128,10 @@ export function createApp() {
         const attention = vm.needsAttention ? ' !' : '';
         const statusIcon = vm.status === 'running' ? '*' : '-';
         const prefix = isActive ? '>' : ' ';
+        const provLabel = vm.provisioningStatus === 'provisioning' ? ' [setup]'
+          : vm.provisioningStatus === 'failed' ? ' [fail]'
+          : vm.provisioningStatus === 'pending' ? ' [wait]'
+          : '';
 
         blessed.box({
           parent: sidebar,
@@ -140,7 +144,7 @@ export function createApp() {
             border: { fg: isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.name}${attention}\n  ${vm.status}`,
+          content: `${prefix} ${statusIcon} ${vm.name}${attention}\n  ${vm.status}${provLabel}`,
           tags: true,
         });
       });

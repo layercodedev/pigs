@@ -4,6 +4,11 @@ export interface VM {
   status: 'cold' | 'running' | 'stopped';
   createdAt: string;
   needsAttention: boolean;
+  provisioningStatus?: 'pending' | 'provisioning' | 'done' | 'failed';
+}
+
+export interface PigsSettings {
+  claudeMd: string;
 }
 
 export interface AppState {

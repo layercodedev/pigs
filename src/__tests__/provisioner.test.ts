@@ -1,0 +1,168 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { provisionVM, loadSettings } from '../provisioner.js';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+// Mock node:fs/promises
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn(),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+}));
+
+const mockedReadFile = vi.mocked(readFile);
+const mockedMkdir = vi.mocked(mkdir);
+const mockedWriteFile = vi.mocked(writeFile);
+
+function createMockSprite() {
+  return {
+    exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
+  };
+}
+
+function createMockClient(mockSprite?: ReturnType<typeof createMockSprite>) {
+  const sprite = mockSprite ?? createMockSprite();
+  return {
+    sprite: vi.fn().mockReturnValue(sprite),
+    _mockSprite: sprite,
+  } as any;
+}
+
+describe('loadSettings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should return parsed settings when file exists', async () => {
+    const settings = { claudeMd: '# Custom instructions' };
+    mockedReadFile.mockResolvedValue(JSON.stringify(settings));
+
+    const result = await loadSettings();
+
+    expect(result).toEqual(settings);
+    expect(mockedReadFile).toHaveBeenCalledWith(
+      join(homedir(), '.pigs', 'settings.json'),
+      'utf-8',
+    );
+  });
+
+  it('should create default settings when file is missing', async () => {
+    mockedReadFile.mockRejectedValue(new Error('ENOENT'));
+
+    const result = await loadSettings();
+
+    expect(result.claudeMd).toContain('Agent Instructions');
+    expect(mockedMkdir).toHaveBeenCalledWith(
+      join(homedir(), '.pigs'),
+      { recursive: true },
+    );
+    expect(mockedWriteFile).toHaveBeenCalledWith(
+      join(homedir(), '.pigs', 'settings.json'),
+      expect.any(String),
+      'utf-8',
+    );
+  });
+
+  it('should write valid JSON for default settings', async () => {
+    mockedReadFile.mockRejectedValue(new Error('ENOENT'));
+
+    await loadSettings();
+
+    const writtenJson = mockedWriteFile.mock.calls[0][1] as string;
+    const parsed = JSON.parse(writtenJson);
+    expect(parsed).toHaveProperty('claudeMd');
+    expect(typeof parsed.claudeMd).toBe('string');
+  });
+});
+
+describe('provisionVM', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should call sprite.exec for provisioning script', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    // Provide settings so loadSettings succeeds
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    await provisionVM(client, 'pigs-abc123');
+
+    expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
+    // First exec: provision script
+    expect(mockSprite.exec).toHaveBeenCalledTimes(2);
+    const firstCall = mockSprite.exec.mock.calls[0][0] as string;
+    expect(firstCall).toContain('claude');
+    expect(firstCall).toContain('sshd');
+  });
+
+  it('should write CLAUDE.md via base64-encoded exec', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    const claudeMd = '# My Instructions\nDo stuff.';
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd }));
+
+    await provisionVM(client, 'pigs-test');
+
+    // Second exec: write CLAUDE.md
+    const secondCall = mockSprite.exec.mock.calls[1][0] as string;
+    expect(secondCall).toContain('base64');
+    expect(secondCall).toContain('/root/CLAUDE.md');
+
+    // Verify the base64 content decodes correctly
+    const b64Match = secondCall.match(/echo '([^']+)'/);
+    expect(b64Match).not.toBeNull();
+    const decoded = Buffer.from(b64Match![1], 'base64').toString();
+    expect(decoded).toBe(claudeMd);
+  });
+
+  it('should call onLog callback with progress messages', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    const logs: string[] = [];
+    await provisionVM(client, 'pigs-abc', (msg) => logs.push(msg));
+
+    expect(logs.length).toBeGreaterThanOrEqual(2);
+    expect(logs.some((m) => m.includes('Claude Code'))).toBe(true);
+    expect(logs.some((m) => m.includes('CLAUDE.md'))).toBe(true);
+  });
+
+  it('should propagate exec errors', async () => {
+    const mockSprite = createMockSprite();
+    mockSprite.exec.mockRejectedValueOnce(new Error('exec failed'));
+    const client = createMockClient(mockSprite);
+
+    await expect(provisionVM(client, 'pigs-fail')).rejects.toThrow('exec failed');
+  });
+
+  it('should work without onLog callback', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    await expect(provisionVM(client, 'pigs-silent')).resolves.toBeUndefined();
+  });
+
+  it('should create default settings if none exist and use them', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    // First call to loadSettings will fail (no file), triggering default creation
+    mockedReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+
+    await provisionVM(client, 'pigs-new');
+
+    // Should have created the settings file
+    expect(mockedMkdir).toHaveBeenCalled();
+    expect(mockedWriteFile).toHaveBeenCalled();
+
+    // Should still write CLAUDE.md with default content
+    const secondCall = mockSprite.exec.mock.calls[1][0] as string;
+    const b64Match = secondCall.match(/echo '([^']+)'/);
+    expect(b64Match).not.toBeNull();
+    const decoded = Buffer.from(b64Match![1], 'base64').toString();
+    expect(decoded).toContain('Agent Instructions');
+  });
+});

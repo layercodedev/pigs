@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { VM, AppState } from '../types.js';
+import type { VM, AppState, PigsSettings } from '../types.js';
 
 describe('types', () => {
   it('should create a valid VM object', () => {
@@ -25,5 +25,35 @@ describe('types', () => {
     expect(state.vms).toHaveLength(0);
     expect(state.activeVmIndex).toBe(-1);
     expect(state.mode).toBe('normal');
+  });
+
+  it('should support provisioningStatus on VM', () => {
+    const vm: VM = {
+      name: 'pigs-prov',
+      id: '456',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+      provisioningStatus: 'provisioning',
+    };
+    expect(vm.provisioningStatus).toBe('provisioning');
+  });
+
+  it('should allow provisioningStatus to be undefined', () => {
+    const vm: VM = {
+      name: 'pigs-noprov',
+      id: '789',
+      status: 'cold',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+    };
+    expect(vm.provisioningStatus).toBeUndefined();
+  });
+
+  it('should create a valid PigsSettings', () => {
+    const settings: PigsSettings = {
+      claudeMd: '# Instructions',
+    };
+    expect(settings.claudeMd).toBe('# Instructions');
   });
 });
