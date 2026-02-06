@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { VM, AppState, PigsSettings } from '../types.js';
+import type { VM, AppState, PigsSettings, SortMode } from '../types.js';
 
 describe('types', () => {
   it('should create a valid VM object', () => {
@@ -23,12 +23,14 @@ describe('types', () => {
       mode: 'normal',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.vms).toHaveLength(0);
     expect(state.activeVmIndex).toBe(-1);
     expect(state.mode).toBe('normal');
     expect(state.settings).toBeNull();
     expect(state.searchFilter).toBe('');
+    expect(state.sortMode).toBe('default');
   });
 
   it('should allow AppState with loaded settings', () => {
@@ -39,6 +41,7 @@ describe('types', () => {
       mode: 'normal',
       settings: { claudeMd: '# My instructions' },
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.settings).not.toBeNull();
     expect(state.settings!.claudeMd).toBe('# My instructions');
@@ -120,6 +123,7 @@ describe('types', () => {
       mode: 'prompt',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('prompt');
   });
@@ -132,6 +136,7 @@ describe('types', () => {
       mode: 'broadcast',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('broadcast');
   });
@@ -144,6 +149,7 @@ describe('types', () => {
       mode: 'help',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('help');
   });
@@ -156,6 +162,7 @@ describe('types', () => {
       mode: 'bulk-create',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('bulk-create');
   });
@@ -168,6 +175,7 @@ describe('types', () => {
       mode: 'confirm-delete-all',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('confirm-delete-all');
   });
@@ -180,6 +188,7 @@ describe('types', () => {
       mode: 'confirm-reprovision-all',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('confirm-reprovision-all');
   });
@@ -192,6 +201,7 @@ describe('types', () => {
       mode: 'rename',
       settings: null,
       searchFilter: '',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('rename');
   });
@@ -253,8 +263,25 @@ describe('types', () => {
       mode: 'search',
       settings: null,
       searchFilter: 'myproject',
+      sortMode: 'default',
     };
     expect(state.mode).toBe('search');
     expect(state.searchFilter).toBe('myproject');
+  });
+
+  it('should support sortMode on AppState', () => {
+    const modes: SortMode[] = ['default', 'name', 'status', 'attention', 'elapsed'];
+    for (const sortMode of modes) {
+      const state: AppState = {
+        vms: [],
+        activeVmIndex: -1,
+        sidebarSelectedIndex: 0,
+        mode: 'normal',
+        settings: null,
+        searchFilter: '',
+        sortMode,
+      };
+      expect(state.sortMode).toBe(sortMode);
+    }
   });
 });

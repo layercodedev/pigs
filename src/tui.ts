@@ -1,5 +1,5 @@
 import blessed from 'blessed';
-import type { AppState, VM } from './types.js';
+import type { AppState, SortMode, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 
 /**
@@ -52,6 +52,59 @@ export function filterVMs(vms: VM[], filter: string): VM[] {
   });
 }
 
+const SORT_ORDER: SortMode[] = ['default', 'name', 'status', 'attention', 'elapsed'];
+
+/**
+ * Cycle to the next sort mode.
+ */
+export function nextSortMode(current: SortMode): SortMode {
+  const idx = SORT_ORDER.indexOf(current);
+  return SORT_ORDER[(idx + 1) % SORT_ORDER.length];
+}
+
+/**
+ * Sort VMs by the given sort mode. Returns a new array (does not mutate input).
+ * - default: creation order (no sort)
+ * - name: alphabetical by displayLabel/name
+ * - status: running first, then stopped, then cold
+ * - attention: VMs needing attention first
+ * - elapsed: VMs with active tasks first, sorted by longest running
+ */
+export function sortVMs(vms: VM[], mode: SortMode): VM[] {
+  if (mode === 'default') return vms;
+  const sorted = [...vms];
+  switch (mode) {
+    case 'name':
+      sorted.sort((a, b) => {
+        const aLabel = (a.displayLabel ?? a.name).toLowerCase();
+        const bLabel = (b.displayLabel ?? b.name).toLowerCase();
+        return aLabel.localeCompare(bLabel);
+      });
+      break;
+    case 'status': {
+      const statusOrder: Record<string, number> = { running: 0, stopped: 1, cold: 2 };
+      sorted.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+      break;
+    }
+    case 'attention':
+      sorted.sort((a, b) => {
+        if (a.needsAttention && !b.needsAttention) return -1;
+        if (!a.needsAttention && b.needsAttention) return 1;
+        return 0;
+      });
+      break;
+    case 'elapsed':
+      sorted.sort((a, b) => {
+        const aTime = a.taskStartedAt ?? Infinity;
+        const bTime = b.taskStartedAt ?? Infinity;
+        // Lower start time = running longer = should come first
+        return aTime - bTime;
+      });
+      break;
+  }
+  return sorted;
+}
+
 /**
  * Format an elapsed time from a start timestamp to a compact human-readable string.
  * Returns '' if startTime is undefined/null.
@@ -83,6 +136,7 @@ export function createApp() {
     mode: 'normal',
     settings: null,
     searchFilter: '',
+    sortMode: 'default',
   };
 
   // Sidebar: list of VMs on the left
@@ -154,7 +208,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -332,7 +386,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 32,
+    height: 33,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -367,6 +421,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
+      '  s             Cycle sort: default/name/status/attention/elapsed',
       '  /             Search/filter VMs in sidebar',
       '  Escape        Clear search filter (in normal mode)',
       '  ?             Toggle this help screen',
@@ -448,11 +503,11 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
-    return filterVMs(state.vms, state.searchFilter);
+    return sortVMs(filterVMs(state.vms, state.searchFilter), state.sortMode);
   }
 
   function renderSidebar() {
@@ -463,10 +518,11 @@ export function createApp() {
     // Update sidebar label with VM status summary
     const summary = buildVmSummary(state.vms);
     const filterLabel = state.searchFilter ? ` filter:"${state.searchFilter}"` : '';
+    const sortLabel = state.sortMode !== 'default' ? ` sort:${state.sortMode}` : '';
     if (summary) {
-      sidebar.setLabel(` VMs (${summary})${filterLabel} `);
+      sidebar.setLabel(` VMs (${summary})${filterLabel}${sortLabel} `);
     } else {
-      sidebar.setLabel(` VMs${filterLabel} `);
+      sidebar.setLabel(` VMs${filterLabel}${sortLabel} `);
     }
 
     const displayed = getFilteredVMs();
@@ -812,6 +868,12 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     handlers['stop-agent']?.();
+  });
+
+  screen.key(['s'], () => {
+    if (state.mode !== 'normal') return;
+    state.sortMode = nextSortMode(state.sortMode);
+    render();
   });
 
   screen.key(['?'], () => {

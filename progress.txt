@@ -153,3 +153,15 @@ Changes:
 - `src/index.ts`: Added `stop-agent` handler that sends Ctrl-C (`\x03`) to the selected VM's console stdin. Attaches a console session if none exists. Clears `vm.taskStartedAt` to stop the elapsed timer.
 
 All 179 tests pass. Type checks clean.
+
+## VM Sort Cycling Feature
+
+Added sort cycling (press `s`) to cycle through sort modes for the VM sidebar: default → name → status → attention → elapsed. Essential for managing large fleets — quickly reorder VMs to find what you need. Sort by name for alphabetical order, by status to see running VMs first, by attention to surface finished agents, or by elapsed time to find longest-running tasks. Current sort mode is shown in the sidebar label (e.g. `sort:attention`). Pressing `s` repeatedly cycles through all modes and back to default (creation order).
+
+Changes:
+- `src/types.ts`: Added `SortMode` type (`'default' | 'name' | 'status' | 'attention' | 'elapsed'`), added `sortMode` field to AppState
+- `src/tui.ts`: Added `sortVMs()` pure function with sort logic for all 5 modes, added `nextSortMode()` cycle helper, added `s` keybinding in normal mode, integrated sorting into `getFilteredVMs()` pipeline (filter then sort), updated sidebar label to show active sort mode, updated help screen with new keybinding (increased dialog height to 33), updated status bar to include `s:sort`
+- `src/__tests__/sort-vms.test.ts`: 11 tests covering nextSortMode cycling, default passthrough, immutability, name sort (alpha, case-insensitive, fallback to vm.name), status sort (running > stopped > cold), attention sort, elapsed sort (longest first), empty array handling, single VM
+- `src/__tests__/types.test.ts`: Added `sortMode` to all AppState test instances, added test for all SortMode values
+
+All 191 tests pass. Type checks clean.
