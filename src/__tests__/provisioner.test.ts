@@ -74,6 +74,17 @@ describe('loadSettings', () => {
     expect(parsed).toHaveProperty('claudeMd');
     expect(typeof parsed.claudeMd).toBe('string');
   });
+
+  it('should include openInVscode: true in default settings', async () => {
+    mockedReadFile.mockRejectedValue(new Error('ENOENT'));
+
+    const result = await loadSettings();
+
+    expect(result.openInVscode).toBe(true);
+    const writtenJson = mockedWriteFile.mock.calls[0][1] as string;
+    const parsed = JSON.parse(writtenJson);
+    expect(parsed.openInVscode).toBe(true);
+  });
 });
 
 describe('provisionVM', () => {

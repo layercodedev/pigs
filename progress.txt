@@ -201,3 +201,18 @@ Completed:
   - Added SIGTERM signal handler that runs the same graceful cleanup (stopMonitor, detachAll, unmountAll)
   - Ensures VMs keep running when TUI exits (detachAll removes listeners without killing remote processes)
 - All 79 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 9: Auto-open VS Code on Mount
+
+Task: When mounting filesystem, auto-open in VS Code with config option in ~/.pigs/settings.json
+
+Completed:
+- Updated src/types.ts: added optional `openInVscode` boolean field to PigsSettings interface
+- Updated src/provisioner.ts: default settings now include `openInVscode: true` when creating ~/.pigs/settings.json
+- Updated src/index.ts:
+  - Mount handler now calls `code <mountPath>` after successful mount when `openInVscode` is not explicitly false
+  - Defaults to true (opens VS Code) for new installs and existing users who haven't set the option
+  - Failure to open VS Code is non-blocking: shows a status message but doesn't prevent mount from succeeding
+- Updated src/__tests__/types.test.ts: added 2 tests for openInVscode field (true and undefined)
+- Updated src/__tests__/provisioner.test.ts: added test verifying default settings include openInVscode: true
+- All 82 tests pass, typecheck clean

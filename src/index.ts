@@ -14,6 +14,7 @@ import {
 import { loadSettings, provisionVM } from './provisioner.js';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
 import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
+import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
@@ -211,6 +212,17 @@ async function main() {
       });
       vm.mountPath = mountPath;
       app.setStatusMessage(`Mounted ${vm.name} at ${mountPath}`);
+
+      // Auto-open in VS Code if enabled (defaults to true)
+      if (state.settings?.openInVscode !== false) {
+        execFile('code', [mountPath], (err) => {
+          if (err) {
+            app.setStatusMessage(`Mounted ${vm.name} (VS Code open failed: ${err.message})`);
+            app.render();
+            setTimeout(() => app.resetStatus(), 3000);
+          }
+        });
+      }
     } catch (err: any) {
       app.setStatusMessage(`Mount failed: ${err.message}`);
     }

@@ -70,4 +70,19 @@ describe('types', () => {
     };
     expect(settings.claudeMd).toBe('# Instructions');
   });
+
+  it('should support openInVscode in PigsSettings', () => {
+    const settings: PigsSettings = {
+      claudeMd: '# Instructions',
+      openInVscode: true,
+    };
+    expect(settings.openInVscode).toBe(true);
+  });
+
+  it('should allow openInVscode to be undefined', () => {
+    const settings: PigsSettings = {
+      claudeMd: '# Instructions',
+    };
+    expect(settings.openInVscode).toBeUndefined();
+  });
 });

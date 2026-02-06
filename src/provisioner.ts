@@ -30,7 +30,7 @@ export async function loadSettings(): Promise<PigsSettings> {
     const data = await readFile(SETTINGS_PATH, 'utf-8');
     return JSON.parse(data) as PigsSettings;
   } catch {
-    const settings: PigsSettings = { claudeMd: DEFAULT_CLAUDE_MD };
+    const settings: PigsSettings = { claudeMd: DEFAULT_CLAUDE_MD, openInVscode: true };
     await mkdir(SETTINGS_DIR, { recursive: true });
     await writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2), 'utf-8');
     return settings;

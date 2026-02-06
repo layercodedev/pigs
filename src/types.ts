@@ -10,6 +10,7 @@ export interface VM {
 
 export interface PigsSettings {
   claudeMd: string;
+  openInVscode?: boolean;
 }
 
 export interface AppState {
