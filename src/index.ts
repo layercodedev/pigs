@@ -230,6 +230,43 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Prompt submit handler - run claude -p on the VM
+  app.onKey('prompt-submit', async (prompt: string) => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    if (vm.provisioningStatus !== 'done') {
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    // Detach from any previously active session's output listeners
+    for (const v of state.vms) {
+      if (v.name !== vm.name && getSession(v.name)) {
+        detachConsole(v.name);
+      }
+    }
+
+    app.setStatusMessage(`Sending prompt to ${vm.displayLabel ?? vm.name}...`);
+    try {
+      const { cols, rows } = app.getTerminalSize();
+      await attachConsole(client, vm.name, cols, rows);
+      state.activeVmIndex = state.sidebarSelectedIndex;
+      app.clearTerminal();
+      connectSessionOutput(vm.name);
+
+      // Send the claude command with the prompt
+      const escapedPrompt = prompt.replace(/'/g, "'\\''");
+      writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+
+      app.enterConsoleMode();
+    } catch (err: any) {
+      app.setStatusMessage(`Error: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
+  });
+
   // Unmount VM filesystem handler
   app.onKey('unmount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];

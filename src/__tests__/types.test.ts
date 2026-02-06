@@ -108,4 +108,15 @@ describe('types', () => {
     };
     expect(vm.displayLabel).toBeUndefined();
   });
+
+  it('should support prompt mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'prompt',
+      settings: null,
+    };
+    expect(state.mode).toBe('prompt');
+  });
 });

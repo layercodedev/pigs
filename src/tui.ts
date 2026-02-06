@@ -106,7 +106,45 @@ export function createApp() {
     tags: true,
   });
 
-  const normalStatusText = ' c:create  d:delete  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit';
+  // Prompt input dialog (hidden by default)
+  const promptDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '80%',
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'magenta' },
+      bg: 'black',
+    },
+    label: ' Send Prompt to Agent ',
+    tags: true,
+  });
+
+  const promptInput = blessed.textbox({
+    parent: promptDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const promptHint = blessed.text({
+    parent: promptDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter:submit  Escape:cancel',
+    style: { fg: 'gray' },
+  });
+
+  const normalStatusText = ' c:create  d:delete  p:prompt  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -239,8 +277,8 @@ export function createApp() {
       hideConfirmDelete();
       return;
     }
-    if (state.mode === 'console') {
-      // In console mode, q goes to the VM
+    if (state.mode === 'console' || state.mode === 'prompt') {
+      // In console/prompt mode, q goes to the input
       return;
     }
     gracefulQuit();
@@ -322,6 +360,14 @@ export function createApp() {
     handlers['unmount']?.();
   });
 
+  screen.key(['p'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    showPromptInput(vm);
+  });
+
   // Handle screen resize for console sessions
   screen.on('resize', () => {
     const cols = (mainView.width as number) - 2; // subtract border
@@ -363,6 +409,38 @@ export function createApp() {
     statusBar.setContent(consoleStatusText);
     render();
   }
+
+  function showPromptInput(vm: VM) {
+    state.mode = 'prompt';
+    promptDialog.setLabel(` Send Prompt to ${vm.displayLabel ?? vm.name} `);
+    promptDialog.show();
+    promptInput.setValue('');
+    promptInput.focus();
+    promptInput.readInput();
+    screen.render();
+  }
+
+  function hidePromptInput() {
+    state.mode = 'normal';
+    promptDialog.hide();
+    promptInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  // Prompt input submission
+  promptInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    hidePromptInput();
+    if (text) {
+      handlers['prompt-submit']?.(text);
+    }
+  });
+
+  // Prompt input cancel
+  promptInput.on('cancel', () => {
+    hidePromptInput();
+  });
 
   return {
     screen,

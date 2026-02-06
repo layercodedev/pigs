@@ -18,6 +18,6 @@ export interface AppState {
   vms: VM[];
   activeVmIndex: number;
   sidebarSelectedIndex: number;
-  mode: 'normal' | 'confirm-delete' | 'creating' | 'console';
+  mode: 'normal' | 'confirm-delete' | 'creating' | 'console' | 'prompt';
   settings: PigsSettings | null;
 }

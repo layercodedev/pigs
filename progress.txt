@@ -243,3 +243,28 @@ Completed:
 - Updated types.test.ts: added 2 tests for displayLabel field (set and undefined)
 - Updated 2 existing pollAll tests to account for git label checking behavior
 - All 92 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 11: Prompt Input
+
+Task: Press `p` to type a prompt and send `claude -p` to the selected VM agent
+
+Completed:
+- Updated src/types.ts: added 'prompt' to the AppState mode union type
+- Updated src/tui.ts:
+  - Added prompt input dialog with textbox widget (magenta border, 80% width, centered)
+  - Added `p` key binding: opens prompt dialog for the selected VM (only in normal mode)
+  - `showPromptInput()` sets mode to 'prompt', shows dialog with VM label, focuses textbox for input
+  - `hidePromptInput()` resets to normal mode, hides dialog, cancels textbox input
+  - Prompt submit event fires `handlers['prompt-submit']` with trimmed text
+  - Prompt cancel (Escape) hides dialog without action
+  - `q` key is suppressed in prompt mode (forwarded to textbox input)
+  - Status bar now shows `p:prompt` in normal mode key hints
+  - Hint text in dialog: "Enter:submit  Escape:cancel"
+- Updated src/index.ts:
+  - Added `prompt-submit` handler: validates VM is provisioned, attaches console session, sends `claude -p '<prompt>'` command
+  - Shell-escapes single quotes in prompt text to prevent injection
+  - Detaches from any previously active session's output listeners before switching
+  - Enters console mode after sending prompt so user can watch Claude Code output
+  - Shows status messages for progress and errors
+- Updated src/__tests__/types.test.ts: added test for 'prompt' mode in AppState
+- All 93 tests pass, typecheck clean
