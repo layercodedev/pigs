@@ -18,6 +18,7 @@ import { loadHistory, addToHistory } from './prompt-history.js';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
 import { exportLog } from './log-export.js';
 import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.js';
+import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache } from './pr-chain.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -562,6 +563,60 @@ async function main() {
     app.render();
   });
 
+  // Fetch and render PR chain for a VM
+  async function fetchAndRenderPRChain() {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    if (vm.provisioningStatus !== 'done') {
+      app.renderPRChain('\n  {yellow-fg}VM is not provisioned yet{/yellow-fg}', 'PR Chain');
+      return;
+    }
+
+    try {
+      const [prs, currentBranch, defaultBranch] = await Promise.all([
+        fetchPRChain(client, vm.name),
+        getCurrentBranch(client, vm.name),
+        getDefaultBranch(client, vm.name),
+      ]);
+
+      if (prs.length === 0) {
+        app.renderPRChain(
+          '\n  {gray-fg}No pull requests found{/gray-fg}\n\n  Hint: create a PR with {bold}gh pr create{/bold}',
+          `PR Chain — ${vm.displayLabel ?? vm.name}`,
+        );
+        return;
+      }
+
+      const tree = buildPRTree(prs, defaultBranch);
+      const width = (app.screen.width as number) - 4;
+      const lines = renderPRTree(tree, currentBranch, width);
+      app.renderPRChain('\n' + lines.join('\n'), `PR Chain — ${vm.displayLabel ?? vm.name}`);
+    } catch (err: any) {
+      const msg = String(err.message || err);
+      if (msg.includes('gh') && (msg.includes('not found') || msg.includes('command not found'))) {
+        app.renderPRChain('\n  {red-fg}GitHub CLI (gh) not available on this VM{/red-fg}', 'PR Chain');
+      } else if (msg.includes('not a git repository')) {
+        app.renderPRChain('\n  {red-fg}No git repository found on this VM{/red-fg}', 'PR Chain');
+      } else {
+        app.renderPRChain(`\n  {red-fg}Error: ${msg}{/red-fg}`, 'PR Chain');
+      }
+    }
+  }
+
+  // PR chain open handler
+  app.onKey('pr-chain-open', fetchAndRenderPRChain);
+
+  // PR chain refresh handler - clear cache and re-fetch
+  app.onKey('pr-chain-refresh', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    clearPRCache(vm.name);
+    app.renderPRChain('\n  {yellow-fg}Refreshing PR data...{/yellow-fg}', 'PR Chain');
+    await fetchAndRenderPRChain();
+  });
+
   // Mount VM filesystem handler
   app.onKey('mount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
@@ -757,6 +812,59 @@ async function main() {
     app.setStatusMessage(`Broadcast queue: ${parts.join(', ')} agent(s)`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Ralph prompt handler - run iterative claude loop on the VM
+  app.onKey('ralph-submit', async (prompt: string, iterations: number) => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    await addToHistory(prompt);
+
+    if (vm.provisioningStatus !== 'done') {
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    app.setStatusMessage(`Starting Ralph on ${vm.displayLabel ?? vm.name} (${iterations} iterations)...`);
+    try {
+      const { cols, rows } = app.getTerminalSize();
+      await attachConsole(client, vm.name, cols, rows);
+      state.activeVmIndex = state.sidebarSelectedIndex;
+      clearOutput(vm.name);
+      app.clearTerminal();
+      connectSessionOutput(vm.name);
+
+      vm.taskStartedAt = Date.now();
+
+      // Build the ralph loop as an inline bash script.
+      // Suppress intermediate done-signals so the monitor only fires once at the end.
+      const escapedPrompt = prompt.replace(/'/g, "'\\''");
+      const ralphScript = [
+        `rm -f /tmp/claude-done-signal`,
+        `for i in $(seq 1 ${iterations}); do`,
+        `  echo "=== Ralph iteration $i/${iterations} ==="`,
+        `  tmpfile=$(mktemp)`,
+        `  claude --dangerously-skip-permissions -p '${escapedPrompt}' 2>&1 | tee "$tmpfile"`,
+        `  rm -f /tmp/claude-done-signal`,
+        `  if grep -q '<promise>COMPLETE</promise>' "$tmpfile"; then`,
+        `    echo "Ralph complete after $i iterations."`,
+        `    rm -f "$tmpfile"`,
+        `    break`,
+        `  fi`,
+        `  rm -f "$tmpfile"`,
+        `done`,
+        `touch /tmp/claude-done-signal`,
+      ].join('\n');
+
+      writeToConsole(vm.name, ralphScript + '\n');
+
+      app.enterConsoleMode();
+    } catch (err: any) {
+      app.setStatusMessage(`Error: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
   });
 
   // Unmount VM filesystem handler

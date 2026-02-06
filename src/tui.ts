@@ -419,7 +419,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 41,
+    height: 42,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -459,6 +459,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
+      '  g             View PR chain for selected VM\'s repo',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
       '  /             Search/filter VMs in sidebar',
@@ -615,6 +616,109 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
+  // Ralph iterations dialog (hidden by default) - step 1: ask for iteration count
+  const ralphIterationsDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 50,
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'red' },
+      bg: 'black',
+    },
+    label: ' Ralph: Number of Iterations ',
+    tags: true,
+  });
+
+  const ralphIterationsInput = blessed.textbox({
+    parent: ralphIterationsDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const ralphIterationsHint = blessed.text({
+    parent: ralphIterationsDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter number (1-100)  Escape:cancel',
+    style: { fg: 'gray' },
+  });
+
+  // Ralph prompt dialog (hidden by default) - step 2: ask for prompt text
+  const ralphPromptDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '80%',
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'red' },
+      bg: 'black',
+    },
+    label: ' Ralph: Enter Prompt ',
+    tags: true,
+  });
+
+  const ralphPromptInput = blessed.textbox({
+    parent: ralphPromptDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const ralphPromptHint = blessed.text({
+    parent: ralphPromptDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter:run ralph  Escape:cancel  (iterates with --dangerously-skip-permissions)',
+    style: { fg: 'gray' },
+  });
+
+  let ralphIterationsValue = 5;  // default iterations, stored between steps
+
+  // PR chain overlay (hidden by default)
+  const prChainOverlay = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%-1',
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'green' },
+      bg: 'black',
+      label: { fg: 'white', bold: true },
+    },
+    label: ' PR Chain ',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+      style: { bg: 'gray' },
+    },
+    mouse: true,
+    keys: true,
+  });
+
   // Queue viewer overlay (hidden by default)
   const queueViewerOverlay = blessed.box({
     parent: screen,
@@ -672,7 +776,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  i:dashboard  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -877,7 +981,11 @@ export function createApp() {
       hideQueueViewer();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue') {
+    if (state.mode === 'pr-chain') {
+      hidePRChain();
+      return;
+    }
+    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue' || state.mode === 'ralph-iterations' || state.mode === 'ralph-prompt') {
       // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
     }
@@ -902,6 +1010,11 @@ export function createApp() {
   });
 
   screen.key(['j', 'down'], () => {
+    if (state.mode === 'pr-chain') {
+      prChainOverlay.scroll(1);
+      screen.render();
+      return;
+    }
     if (state.mode === 'queue-viewer') {
       const vm = state.vms[state.sidebarSelectedIndex];
       if (!vm) return;
@@ -928,6 +1041,11 @@ export function createApp() {
   });
 
   screen.key(['k', 'up'], () => {
+    if (state.mode === 'pr-chain') {
+      prChainOverlay.scroll(-1);
+      screen.render();
+      return;
+    }
     if (state.mode === 'queue-viewer') {
       const vm = state.vms[state.sidebarSelectedIndex];
       if (!vm) return;
@@ -1043,6 +1161,14 @@ export function createApp() {
     showBroadcastQueueInput();
   });
 
+  screen.key(['f'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    showRalphIterationsInput(vm);
+  });
+
   screen.key(['S-c'], () => {
     if (state.mode !== 'normal') return;
     showBulkCreate();
@@ -1065,6 +1191,10 @@ export function createApp() {
   });
 
   screen.key(['r'], () => {
+    if (state.mode === 'pr-chain') {
+      handlers['pr-chain-refresh']?.();
+      return;
+    }
     if (state.mode !== 'normal') return;
     if (state.vms.length === 0) return;
     const vm = state.vms[state.sidebarSelectedIndex];
@@ -1131,6 +1261,16 @@ export function createApp() {
     showQueueViewer(vm);
   });
 
+  screen.key(['g'], () => {
+    if (state.mode === 'pr-chain') {
+      hidePRChain();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    showPRChain();
+  });
+
   screen.key(['s'], () => {
     if (state.mode !== 'normal') return;
     state.sortMode = nextSortMode(state.sortMode);
@@ -1167,6 +1307,9 @@ export function createApp() {
     }
     if (state.mode === 'dashboard') {
       hideDashboard();
+    }
+    if (state.mode === 'pr-chain') {
+      hidePRChain();
     }
     if (state.mode === 'queue-viewer') {
       hideQueueViewer();
@@ -1320,6 +1463,44 @@ export function createApp() {
     screen.render();
   }
 
+  function showRalphIterationsInput(vm: VM) {
+    state.mode = 'ralph-iterations';
+    ralphIterationsDialog.setLabel(` Ralph: Iterations for ${vm.displayLabel ?? vm.name} `);
+    ralphIterationsDialog.show();
+    ralphIterationsInput.setValue('5');
+    ralphIterationsInput.focus();
+    ralphIterationsInput.readInput();
+    screen.render();
+  }
+
+  function hideRalphIterationsInput() {
+    state.mode = 'normal';
+    ralphIterationsDialog.hide();
+    ralphIterationsInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  function showRalphPromptInput(vm: VM, iterations: number) {
+    ralphIterationsValue = iterations;
+    state.mode = 'ralph-prompt';
+    resetCursor();
+    ralphPromptDialog.setLabel(` Ralph: Prompt for ${vm.displayLabel ?? vm.name} (${iterations} iterations) `);
+    ralphPromptDialog.show();
+    ralphPromptInput.setValue('');
+    ralphPromptInput.focus();
+    ralphPromptInput.readInput();
+    screen.render();
+  }
+
+  function hideRalphPromptInput() {
+    state.mode = 'normal';
+    ralphPromptDialog.hide();
+    ralphPromptInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
   function showBulkCreate() {
     state.mode = 'bulk-create';
     bulkCreateDialog.show();
@@ -1429,6 +1610,31 @@ export function createApp() {
     lines.push('  {gray-fg}d:remove selected  X:clear all  Escape:close{/gray-fg}');
 
     queueViewerOverlay.setContent(lines.join('\n'));
+  }
+
+  function showPRChain() {
+    state.mode = 'pr-chain';
+    prChainOverlay.setContent('\n  {yellow-fg}Fetching PR data...{/yellow-fg}');
+    prChainOverlay.setLabel(' PR Chain ');
+    prChainOverlay.show();
+    prChainOverlay.focus();
+    statusBar.setContent(' g:close  r:refresh  j/k:scroll  Escape:close');
+    screen.render();
+    handlers['pr-chain-open']?.();
+  }
+
+  function hidePRChain() {
+    state.mode = 'normal';
+    prChainOverlay.hide();
+    statusBar.setContent(normalStatusText);
+    render();
+  }
+
+  function renderPRChainContent(content: string, label: string) {
+    prChainOverlay.setLabel(` ${label} `);
+    prChainOverlay.setContent(content);
+    prChainOverlay.setScrollPerc(0);
+    screen.render();
   }
 
   function showDashboard() {
@@ -1660,6 +1866,63 @@ export function createApp() {
     }
   });
 
+  // Ralph iterations input submission - step 1: validate, then show prompt dialog
+  ralphIterationsInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    ralphIterationsDialog.hide();
+    ralphIterationsInput.cancel();
+    if (text) {
+      const count = parseInt(text, 10);
+      if (count > 0 && count <= 100) {
+        const vm = state.vms[state.sidebarSelectedIndex];
+        if (vm) {
+          showRalphPromptInput(vm, count);
+          return;
+        }
+      }
+    }
+    // Invalid or cancelled — return to normal
+    state.mode = 'normal';
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  });
+
+  // Ralph iterations input cancel
+  ralphIterationsInput.on('cancel', () => {
+    hideRalphIterationsInput();
+  });
+
+  // Ralph prompt input submission - step 2: emit ralph-submit with prompt + iterations
+  ralphPromptInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    hideRalphPromptInput();
+    if (text) {
+      handlers['ralph-submit']?.(text, ralphIterationsValue);
+    }
+  });
+
+  // Ralph prompt input cancel
+  ralphPromptInput.on('cancel', () => {
+    hideRalphPromptInput();
+  });
+
+  // History navigation for ralph prompt input
+  ralphPromptInput.on('keypress', (_ch: string, key: { name: string }) => {
+    if (key.name === 'up') {
+      const entry = historyUp(ralphPromptInput.getValue());
+      if (entry !== null) {
+        ralphPromptInput.setValue(entry);
+        screen.render();
+      }
+    } else if (key.name === 'down') {
+      const entry = historyDown();
+      if (entry !== null) {
+        ralphPromptInput.setValue(entry);
+        screen.render();
+      }
+    }
+  });
+
   // Refresh sidebar/dashboard every second so elapsed timers update live
   const elapsedTimer = setInterval(() => {
     if (state.vms.some(vm => vm.taskStartedAt != null)) {
@@ -1718,6 +1981,11 @@ export function createApp() {
       if (state.mode === 'queue-viewer') {
         renderQueueViewer(vm);
         screen.render();
+      }
+    },
+    renderPRChain(content: string, label: string) {
+      if (state.mode === 'pr-chain') {
+        renderPRChainContent(content, label);
       }
     },
     resetStatus() {
