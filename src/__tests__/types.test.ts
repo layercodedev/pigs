@@ -310,4 +310,17 @@ describe('types', () => {
     };
     expect(state.mode).toBe('queue');
   });
+
+  it('should support broadcast-queue mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'broadcast-queue',
+      settings: null,
+      searchFilter: '',
+      sortMode: 'default',
+    };
+    expect(state.mode).toBe('broadcast-queue');
+  });
 });

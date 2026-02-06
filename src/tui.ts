@@ -241,7 +241,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -419,7 +419,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 39,
+    height: 40,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -452,6 +452,7 @@ export function createApp() {
       '  p             Send prompt to selected VM',
       '  b             Broadcast prompt to all VMs',
       '  Q (shift)     Queue prompt for selected VM (auto-sends)',
+      '  B (shift)     Queue prompt to ALL VMs (broadcast queue)',
       '  x             Stop/cancel running agent (sends Ctrl-C)',
       '  o             Export VM console log to ~/.pigs/logs/',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
@@ -575,6 +576,44 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
+  // Broadcast queue dialog (hidden by default)
+  const broadcastQueueDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '70%',
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'yellow' },
+      bg: 'black',
+    },
+    label: ' Broadcast Queue Prompt ',
+    tags: true,
+  });
+
+  const broadcastQueueInput = blessed.textbox({
+    parent: broadcastQueueDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const broadcastQueueHint = blessed.text({
+    parent: broadcastQueueDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter:queue to all VMs  Escape:cancel  (auto-sends when each VM finishes)',
+    style: { fg: 'gray' },
+  });
+
   // Search dialog (hidden by default)
   const searchDialog = blessed.box({
     parent: screen,
@@ -605,7 +644,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -806,7 +845,7 @@ export function createApp() {
       hideDashboard();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue') {
+    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue') {
       // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
     }
@@ -935,6 +974,12 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     showQueueInput(vm);
+  });
+
+  screen.key(['S-b'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    showBroadcastQueueInput();
   });
 
   screen.key(['S-c'], () => {
@@ -1167,6 +1212,26 @@ export function createApp() {
     state.mode = 'normal';
     queueDialog.hide();
     queueInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  function showBroadcastQueueInput() {
+    const provisionedCount = state.vms.filter(vm => vm.provisioningStatus === 'done').length;
+    state.mode = 'broadcast-queue';
+    resetCursor();
+    broadcastQueueDialog.setLabel(` Broadcast Queue Prompt to All Agents (${provisionedCount} ready) `);
+    broadcastQueueDialog.show();
+    broadcastQueueInput.setValue('');
+    broadcastQueueInput.focus();
+    broadcastQueueInput.readInput();
+    screen.render();
+  }
+
+  function hideBroadcastQueueInput() {
+    state.mode = 'normal';
+    broadcastQueueDialog.hide();
+    broadcastQueueInput.cancel();
     statusBar.setContent(normalStatusText);
     screen.render();
   }
@@ -1413,6 +1478,37 @@ export function createApp() {
   // Queue input cancel
   queueInput.on('cancel', () => {
     hideQueueInput();
+  });
+
+  // Broadcast queue input submission
+  broadcastQueueInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    hideBroadcastQueueInput();
+    if (text) {
+      handlers['broadcast-queue-submit']?.(text);
+    }
+  });
+
+  // Broadcast queue input cancel
+  broadcastQueueInput.on('cancel', () => {
+    hideBroadcastQueueInput();
+  });
+
+  // History navigation for broadcast queue input
+  broadcastQueueInput.on('keypress', (_ch: string, key: { name: string }) => {
+    if (key.name === 'up') {
+      const entry = historyUp(broadcastQueueInput.getValue());
+      if (entry !== null) {
+        broadcastQueueInput.setValue(entry);
+        screen.render();
+      }
+    } else if (key.name === 'down') {
+      const entry = historyDown();
+      if (entry !== null) {
+        broadcastQueueInput.setValue(entry);
+        screen.render();
+      }
+    }
   });
 
   // History navigation for queue input

@@ -693,6 +693,52 @@ async function main() {
     }
   });
 
+  // Broadcast queue prompt handler - add prompt to all provisioned VMs' queues
+  app.onKey('broadcast-queue-submit', async (prompt: string) => {
+    await addToHistory(prompt);
+
+    const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
+    if (targets.length === 0) {
+      app.setStatusMessage('No provisioned VMs to broadcast queue to');
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    let queued = 0;
+    let sent = 0;
+
+    for (const vm of targets) {
+      // If VM is idle, send immediately
+      if (vm.needsAttention || !vm.taskStartedAt) {
+        if (vm.needsAttention) clearAttention(vm);
+        try {
+          const { cols, rows } = app.getTerminalSize();
+          await attachConsole(client, vm.name, cols, rows);
+          clearOutput(vm.name);
+          connectSessionOutput(vm.name);
+          vm.taskStartedAt = Date.now();
+          const escapedPrompt = prompt.replace(/'/g, "'\\''");
+          writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+          sent++;
+        } catch {
+          // If immediate send fails, enqueue instead
+          enqueue(vm.name, prompt);
+          queued++;
+        }
+      } else {
+        enqueue(vm.name, prompt);
+        queued++;
+      }
+    }
+
+    const parts: string[] = [];
+    if (sent > 0) parts.push(`sent to ${sent}`);
+    if (queued > 0) parts.push(`queued on ${queued}`);
+    app.setStatusMessage(`Broadcast queue: ${parts.join(', ')} agent(s)`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Unmount VM filesystem handler
   app.onKey('unmount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
