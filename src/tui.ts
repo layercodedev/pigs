@@ -85,7 +85,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  d:delete  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit',
+    content: ' c:create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -144,7 +144,45 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
-  const normalStatusText = ' c:create  d:delete  p:prompt  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit';
+  // Broadcast prompt dialog (hidden by default)
+  const broadcastDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '80%',
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'yellow' },
+      bg: 'black',
+    },
+    label: ' Broadcast Prompt to All Agents ',
+    tags: true,
+  });
+
+  const broadcastInput = blessed.textbox({
+    parent: broadcastDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const broadcastHint = blessed.text({
+    parent: broadcastDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter:broadcast to all  Escape:cancel',
+    style: { fg: 'gray' },
+  });
+
+  const normalStatusText = ' c:create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -368,6 +406,12 @@ export function createApp() {
     showPromptInput(vm);
   });
 
+  screen.key(['b'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    showBroadcastInput();
+  });
+
   // Handle screen resize for console sessions
   screen.on('resize', () => {
     const cols = (mainView.width as number) - 2; // subtract border
@@ -428,6 +472,25 @@ export function createApp() {
     screen.render();
   }
 
+  function showBroadcastInput() {
+    const provisionedCount = state.vms.filter(vm => vm.provisioningStatus === 'done').length;
+    state.mode = 'broadcast';
+    broadcastDialog.setLabel(` Broadcast Prompt to All Agents (${provisionedCount} ready) `);
+    broadcastDialog.show();
+    broadcastInput.setValue('');
+    broadcastInput.focus();
+    broadcastInput.readInput();
+    screen.render();
+  }
+
+  function hideBroadcastInput() {
+    state.mode = 'normal';
+    broadcastDialog.hide();
+    broadcastInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
   // Prompt input submission
   promptInput.on('submit', (value: string) => {
     const text = value?.trim();
@@ -440,6 +503,20 @@ export function createApp() {
   // Prompt input cancel
   promptInput.on('cancel', () => {
     hidePromptInput();
+  });
+
+  // Broadcast input submission
+  broadcastInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    hideBroadcastInput();
+    if (text) {
+      handlers['broadcast-submit']?.(text);
+    }
+  });
+
+  // Broadcast input cancel
+  broadcastInput.on('cancel', () => {
+    hideBroadcastInput();
   });
 
   return {

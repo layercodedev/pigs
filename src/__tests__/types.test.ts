@@ -119,4 +119,15 @@ describe('types', () => {
     };
     expect(state.mode).toBe('prompt');
   });
+
+  it('should support broadcast mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'broadcast',
+      settings: null,
+    };
+    expect(state.mode).toBe('broadcast');
+  });
 });

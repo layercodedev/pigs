@@ -267,6 +267,40 @@ async function main() {
     }
   });
 
+  // Broadcast prompt handler - send claude -p to all provisioned VMs
+  app.onKey('broadcast-submit', async (prompt: string) => {
+    const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
+    if (targets.length === 0) {
+      app.setStatusMessage('No provisioned VMs to broadcast to');
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    app.setStatusMessage(`Broadcasting prompt to ${targets.length} agent(s)...`);
+
+    const escapedPrompt = prompt.replace(/'/g, "'\\''");
+    const command = `claude -p '${escapedPrompt}'\n`;
+
+    let sent = 0;
+    let failed = 0;
+
+    for (const vm of targets) {
+      try {
+        const { cols, rows } = app.getTerminalSize();
+        await attachConsole(client, vm.name, cols, rows);
+        writeToConsole(vm.name, command);
+        sent++;
+      } catch {
+        failed++;
+      }
+    }
+
+    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    app.setStatusMessage(`Broadcast sent to ${sent} agent(s)${failMsg}`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Unmount VM filesystem handler
   app.onKey('unmount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
