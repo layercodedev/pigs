@@ -13,6 +13,7 @@ import {
 } from './console-session.js';
 import { loadSettings, provisionVM } from './provisioner.js';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
+import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
@@ -174,6 +175,9 @@ async function main() {
     if (!vm) return;
     app.setStatusMessage(`Deleting VM: ${vm.name}...`);
     try {
+      if (isMounted(vm.name)) {
+        await unmountVM(vm.name);
+      }
       destroyConsole(vm.name);
       await deleteVM(client, vm.name);
       state.vms.splice(state.sidebarSelectedIndex, 1);
@@ -191,10 +195,55 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Mount VM filesystem handler
+  app.onKey('mount', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    if (isMounted(vm.name)) {
+      app.setStatusMessage(`${vm.name} is already mounted at ${vm.mountPath}`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+    app.setStatusMessage(`Mounting ${vm.name}...`);
+    try {
+      const mountPath = await mountVM(client, vm.name, (msg) => {
+        app.setStatusMessage(`${vm.name}: ${msg}`);
+      });
+      vm.mountPath = mountPath;
+      app.setStatusMessage(`Mounted ${vm.name} at ${mountPath}`);
+    } catch (err: any) {
+      app.setStatusMessage(`Mount failed: ${err.message}`);
+    }
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Unmount VM filesystem handler
+  app.onKey('unmount', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    if (!isMounted(vm.name)) {
+      app.setStatusMessage(`${vm.name} is not mounted`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+    app.setStatusMessage(`Unmounting ${vm.name}...`);
+    try {
+      await unmountVM(vm.name);
+      vm.mountPath = undefined;
+      app.setStatusMessage(`Unmounted ${vm.name}`);
+    } catch (err: any) {
+      app.setStatusMessage(`Unmount failed: ${err.message}`);
+    }
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Quit handler - detach all sessions gracefully
-  app.onKey('quit', () => {
+  app.onKey('quit', async () => {
     stopMonitor();
     detachAll();
+    await unmountAll();
   });
 }
 

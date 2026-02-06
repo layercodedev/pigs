@@ -85,7 +85,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  d:delete  j/k:navigate  Enter:activate  q:quit',
+    content: ' c:create  d:delete  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -106,7 +106,7 @@ export function createApp() {
     tags: true,
   });
 
-  const normalStatusText = ' c:create  d:delete  j/k:navigate  Enter:activate  q:quit';
+  const normalStatusText = ' c:create  d:delete  m:mount  u:unmount  j/k:navigate  Enter:activate  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -133,6 +133,7 @@ export function createApp() {
           : vm.provisioningStatus === 'failed' ? ' [fail]'
           : vm.provisioningStatus === 'pending' ? ' [wait]'
           : '';
+        const mountLabel = vm.mountPath ? ' [mnt]' : '';
 
         blessed.box({
           parent: sidebar,
@@ -145,7 +146,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.name}${attention}\n  ${vm.status}${provLabel}`,
+          content: `${prefix} ${statusIcon} ${vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}`,
           tags: true,
         });
       });
@@ -293,6 +294,11 @@ export function createApp() {
   screen.key(['m'], () => {
     if (state.mode !== 'normal') return;
     handlers['mount']?.();
+  });
+
+  screen.key(['u'], () => {
+    if (state.mode !== 'normal') return;
+    handlers['unmount']?.();
   });
 
   // Handle screen resize for console sessions

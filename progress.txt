@@ -151,3 +151,38 @@ Completed:
   - startMonitor/stopMonitor: no duplicate timers, stops polling
 - Updated src/__tests__/provisioner.test.ts: exec call count updated from 2 to 3
 - All 61 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 7: Mount VM Filesystem
+
+Task: Key command to mount sprite FS locally over SSH
+
+Completed:
+- Created src/mount-session.ts module for mounting VM filesystems via sshfs over SSH
+  - `ensureSSHKey()` generates ed25519 key pair in ~/.pigs/ssh/ (one-time setup)
+  - `installSSHKey()` installs public key on VM's /root/.ssh/authorized_keys via sprite.exec()
+  - `createProxyServer()` creates local TCP server that tunnels to VM's SSH port 22 via Sprites WebSocket proxy API
+  - `mountVM()` orchestrates: SSH key setup → local TCP proxy → sshfs mount to ~/.pigs/mounts/{vmName}/
+  - `unmountVM()` unmounts via fusermount/umount and closes the proxy server
+  - `unmountAll()` unmounts all mounted VMs (used on quit)
+  - `isMounted()`, `getMountPath()`, `getMountedNames()` for state introspection
+- Updated src/types.ts: added optional `mountPath` field to VM type
+- Updated src/tui.ts:
+  - Sidebar VM cards now show `[mnt]` label when filesystem is mounted
+  - Status bar includes `m:mount` and `u:unmount` key hints
+  - Added `u` key binding that calls `handlers['unmount']`
+- Updated src/index.ts:
+  - Mount handler (m key): sets up SSH key, creates proxy tunnel, runs sshfs, shows mount path
+  - Unmount handler (u key): unmounts filesystem, closes proxy, clears mountPath
+  - Delete handler now unmounts before deleting VM
+  - Quit handler now calls `unmountAll()` for graceful cleanup
+- Created src/__tests__/mount-session.test.ts with 18 tests covering:
+  - ensureSSHKey: key retrieval, directory creation
+  - installSSHKey: exec command, base64 encoding
+  - createProxyServer: server creation, port binding, localhost binding
+  - isMounted: mounted/unmounted states
+  - getMountPath: path retrieval
+  - getMountedNames: empty and populated states
+  - unmountVM: safe no-op, mount cleanup and proxy close
+  - unmountAll: multi-mount cleanup, safe when empty
+  - constants: key paths and mount directory
+- All 79 tests pass, typecheck clean, build succeeds

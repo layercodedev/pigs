@@ -8,7 +8,7 @@ I want you to build me a command-line TUI application that runs on macOS, that i
 - [x] VM provisioning: on create, install Claude code + SSH via exec, copy CLAUDE.md content from ~/.pigs/settings.json
 - [x] Settings setup: create ~/.pigs/settings.json on first run with default CLAUDE.md content and config
 - [x] Notification hook: Claude code finish hook sends signal, TUI polls/listens and shows attention indicator on VM card
-- [ ] Mount VM filesystem: key command to mount sprite FS locally over SSH
+- [x] Mount VM filesystem: key command to mount sprite FS locally over SSH
 - [ ] Exit gracefully: detach from active VM on quit, all VMs keep running in background
 
 Read all relevant sprites api docs in ../toyo/docs/sprites/ and docs.sprites.dev if there's not a docs file for something.
