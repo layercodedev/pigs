@@ -7,6 +7,7 @@ import { CLAUDE_HOOKS_CONFIG } from './notification-monitor.js';
 
 const SETTINGS_DIR = join(homedir(), '.pigs');
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json');
+const CLAUDE_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
 
 const DEFAULT_CLAUDE_MD = `# Agent Instructions
 
@@ -70,6 +71,17 @@ export async function provisionVM(
   const hooksB64 = Buffer.from(hooksJson).toString('base64');
   await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
   log('Notification hook installed.');
+
+  // Step 4: Copy Claude Code auth credentials from local machine to VM
+  log('Syncing Claude Code credentials...');
+  try {
+    const credentialsData = await readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
+    const credB64 = Buffer.from(credentialsData).toString('base64');
+    await sprite.exec(`echo '${credB64}' | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json`);
+    log('Claude Code credentials synced.');
+  } catch {
+    log('Warning: Could not read local Claude Code credentials (~/.claude/.credentials.json). Claude Code on this VM will need to be authenticated manually.');
+  }
 }
 
 /**
@@ -99,4 +111,15 @@ export async function reprovisionVM(
   const hooksB64 = Buffer.from(hooksJson).toString('base64');
   await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
   log('Notification hook updated.');
+
+  // Refresh Claude Code auth credentials
+  log('Syncing Claude Code credentials...');
+  try {
+    const credentialsData = await readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
+    const credB64 = Buffer.from(credentialsData).toString('base64');
+    await sprite.exec(`echo '${credB64}' | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json`);
+    log('Claude Code credentials synced.');
+  } catch {
+    log('Warning: Could not sync Claude Code credentials.');
+  }
 }

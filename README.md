@@ -27,7 +27,7 @@ Built on [sprites.dev](https://sprites.dev) for VM provisioning and [blessed](ht
 **Prerequisites:**
 - Node.js 18+
 - A [sprites.dev](https://sprites.dev) account with API access
-- An [Anthropic API key](https://console.anthropic.com/) (set as `ANTHROPIC_API_KEY` on each VM)
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) authenticated locally (your auth token is automatically synced to VMs during provisioning)
 
 ```bash
 # Clone the repository
