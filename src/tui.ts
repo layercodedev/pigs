@@ -386,7 +386,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 35,
+    height: 36,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -431,6 +431,7 @@ export function createApp() {
       '  Ctrl-C        Force quit',
       '',
       '  {bold}Info{/bold}',
+      '  Output preview shown for selected VM (navigate with j/k)',
       '  Elapsed time shown in sidebar when task is running',
       '',
       '  {gray-fg}Press ? or Escape to close{/gray-fg}',
@@ -578,9 +579,9 @@ export function createApp() {
       mainView.style.border = { fg: 'yellow' };
       noVmMessage.hide();
       terminal.show();
-    } else if (state.activeVmIndex >= 0 && state.vms[state.activeVmIndex]) {
-      const vm = state.vms[state.activeVmIndex];
-      mainView.setLabel(` Console: ${vm.displayLabel ?? vm.name} `);
+    } else if (state.sidebarSelectedIndex >= 0 && state.vms[state.sidebarSelectedIndex]) {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      mainView.setLabel(` Preview: ${vm.displayLabel ?? vm.name} `);
       mainView.style.border = { fg: 'green' };
       noVmMessage.hide();
       terminal.show();
@@ -735,6 +736,7 @@ export function createApp() {
       const nextVM = displayed[nextFilteredIdx];
       state.sidebarSelectedIndex = state.vms.indexOf(nextVM);
       render();
+      handlers['selection-changed']?.();
     }
   });
 
@@ -749,6 +751,7 @@ export function createApp() {
       const prevVM = displayed[prevFilteredIdx];
       state.sidebarSelectedIndex = state.vms.indexOf(prevVM);
       render();
+      handlers['selection-changed']?.();
     }
   });
 
@@ -838,6 +841,7 @@ export function createApp() {
     if (nextIdx >= 0) {
       state.sidebarSelectedIndex = nextIdx;
       render();
+      handlers['selection-changed']?.();
     }
   });
 
@@ -1089,6 +1093,7 @@ export function createApp() {
     state.searchFilter = value?.trim() ?? '';
     hideSearch();
     render();
+    handlers['selection-changed']?.();
   });
 
   // Search input cancel
@@ -1202,6 +1207,19 @@ export function createApp() {
     clearInterval(elapsedTimer);
   });
 
+  /**
+   * Show a read-only preview of buffered output lines in the terminal view.
+   */
+  function showPreview(lines: string[]) {
+    if (lines.length > 0) {
+      terminal.setContent(lines.join('\n'));
+      terminal.setScrollPerc(100);
+    } else {
+      terminal.setContent('');
+    }
+    screen.render();
+  }
+
   return {
     screen,
     state,
@@ -1214,6 +1232,7 @@ export function createApp() {
     writeToTerminal,
     clearTerminal,
     restoreTerminal,
+    showPreview,
     enterConsoleMode,
     setStatusMessage(msg: string) {
       statusBar.setContent(` ${msg}`);

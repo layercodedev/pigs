@@ -57,6 +57,14 @@ async function main() {
   app.render();
   app.resetStatus();
 
+  // Show preview for initially selected VM
+  if (state.vms.length > 0) {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (vm) {
+      app.showPreview(getOutput(vm.name));
+    }
+  }
+
   // Start polling VMs for Claude Code finish notifications
   startMonitor(client, state.vms, () => {
     app.render();
@@ -76,19 +84,34 @@ async function main() {
     session.command.stdout.on('data', (chunk: Buffer) => {
       const data = chunk.toString();
       appendOutput(vmName, data);
-      // Only write to terminal if this VM is the active one
-      const activeVm = state.vms[state.activeVmIndex];
-      if (activeVm && activeVm.name === vmName) {
-        app.writeToTerminal(data);
+      if (state.mode === 'console') {
+        // In console mode, write to terminal if this is the active VM
+        const activeVm = state.vms[state.activeVmIndex];
+        if (activeVm && activeVm.name === vmName) {
+          app.writeToTerminal(data);
+        }
+      } else {
+        // In normal mode, update preview if this is the selected VM
+        const selectedVm = state.vms[state.sidebarSelectedIndex];
+        if (selectedVm && selectedVm.name === vmName) {
+          app.showPreview(getOutput(vmName));
+        }
       }
     });
 
     session.command.stderr.on('data', (chunk: Buffer) => {
       const data = chunk.toString();
       appendOutput(vmName, data);
-      const activeVm = state.vms[state.activeVmIndex];
-      if (activeVm && activeVm.name === vmName) {
-        app.writeToTerminal(data);
+      if (state.mode === 'console') {
+        const activeVm = state.vms[state.activeVmIndex];
+        if (activeVm && activeVm.name === vmName) {
+          app.writeToTerminal(data);
+        }
+      } else {
+        const selectedVm = state.vms[state.sidebarSelectedIndex];
+        if (selectedVm && selectedVm.name === vmName) {
+          app.showPreview(getOutput(vmName));
+        }
       }
     });
 
@@ -101,6 +124,15 @@ async function main() {
       }
     });
   }
+
+  // Selection changed handler - show preview of selected VM's output buffer
+  app.onKey('selection-changed', () => {
+    if (state.mode !== 'normal') return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    const lines = getOutput(vm.name);
+    app.showPreview(lines);
+  });
 
   // Activate VM handler - attach console session
   app.onKey('activate', async () => {
@@ -562,6 +594,8 @@ async function main() {
       try {
         const { cols, rows } = app.getTerminalSize();
         await attachConsole(client, vm.name, cols, rows);
+        clearOutput(vm.name);
+        connectSessionOutput(vm.name);
         vm.taskStartedAt = Date.now();
         writeToConsole(vm.name, command);
         sent++;

@@ -187,3 +187,13 @@ Changes:
 - `src/__tests__/log-export.test.ts`: 11 tests covering timestamp formatting (zero-padding, edge cases), path construction (sanitization, colons/dots preserved), export (mkdir + writeFile, trailing newline, empty lines, error propagation).
 
 All 202 tests pass. Type checks clean.
+
+## Selection Preview Feature
+
+Added selection preview so the main view shows a read-only preview of the selected VM's console output when navigating with j/k. Previously, you had to press Enter to attach to a VM before seeing its output — a major friction point when monitoring many parallel agents. Now just arrowing through VMs in the sidebar instantly shows each agent's latest output in the main view. Live output from background agents streams into the preview in real-time. The main view label changes to `Preview: {vmLabel}` when previewing vs `Console: {vmLabel} (attached)` when attached.
+
+Changes:
+- `src/tui.ts`: Updated `renderMainView()` to show selected VM (not just active VM) in normal mode with `Preview:` label. Added `showPreview()` function for setting terminal content from buffer. Added `selection-changed` event firing on j/k, `a` (jump to attention), and search submit. Updated help screen with preview info (increased dialog height to 36).
+- `src/index.ts`: Added `selection-changed` handler that reads selected VM's output buffer and calls `showPreview()`. Updated `connectSessionOutput()` to stream live output to preview when in normal mode (selected VM) vs terminal when in console mode (active VM). Added initial preview display after VM load. Added `connectSessionOutput()` + `clearOutput()` calls in broadcast handler so broadcast VMs buffer output for preview.
+
+All 202 tests pass. Type checks clean.
