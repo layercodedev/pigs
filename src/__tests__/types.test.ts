@@ -297,4 +297,17 @@ describe('types', () => {
       expect(state.sortMode).toBe(sortMode);
     }
   });
+
+  it('should support queue mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'queue',
+      settings: null,
+      searchFilter: '',
+      sortMode: 'default',
+    };
+    expect(state.mode).toBe('queue');
+  });
 });

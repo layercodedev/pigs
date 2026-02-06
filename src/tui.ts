@@ -2,6 +2,7 @@ import blessed from 'blessed';
 import type { AppState, SortMode, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 import { getOutput } from './output-buffer.js';
+import { queueSize } from './prompt-queue.js';
 
 /**
  * Find the index of the next VM that needs attention, starting after currentIndex.
@@ -140,8 +141,10 @@ export function buildDashboardCell(vm: VM, lastLine: string, width: number): str
     : '';
   const mount = vm.mountPath ? ' {cyan-fg}[mnt]{/cyan-fg}' : '';
   const elapsed = vm.taskStartedAt ? ` {cyan-fg}${formatElapsed(vm.taskStartedAt, Date.now())}{/cyan-fg}` : '';
+  const qCount = queueSize(vm.name);
+  const queue = qCount > 0 ? ` {magenta-fg}[q:${qCount}]{/magenta-fg}` : '';
 
-  const statusLine = `${statusIcon} ${vm.status}${provLabel}${mount}${elapsed}${attention}`;
+  const statusLine = `${statusIcon} ${vm.status}${provLabel}${mount}${queue}${elapsed}${attention}`;
 
   // Last output line - truncate to fit width
   const cleanLast = lastLine.replace(/\{[^}]*\}/g, '').trim();
@@ -415,7 +418,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 37,
+    height: 39,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -447,6 +450,7 @@ export function createApp() {
       '  {bold}Prompts{/bold}',
       '  p             Send prompt to selected VM',
       '  b             Broadcast prompt to all VMs',
+      '  Q (shift)     Queue prompt for selected VM (auto-sends)',
       '  x             Stop/cancel running agent (sends Ctrl-C)',
       '  o             Export VM console log to ~/.pigs/logs/',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
@@ -463,6 +467,7 @@ export function createApp() {
       '  {bold}Info{/bold}',
       '  Output preview shown for selected VM (navigate with j/k)',
       '  Elapsed time shown in sidebar when task is running',
+      '  Queued prompts [q:N] auto-send when current task finishes',
       '',
       '  {gray-fg}Press ? or Escape to close{/gray-fg}',
     ].join('\n'),
@@ -531,6 +536,44 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
+  // Queue prompt dialog (hidden by default)
+  const queueDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '70%',
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'magenta' },
+      bg: 'black',
+    },
+    label: ' Queue Prompt ',
+    tags: true,
+  });
+
+  const queueInput = blessed.textbox({
+    parent: queueDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const queueHint = blessed.text({
+    parent: queueDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter:add to queue  Escape:cancel  (auto-sends when current task finishes)',
+    style: { fg: 'gray' },
+  });
+
   // Search dialog (hidden by default)
   const searchDialog = blessed.box({
     parent: screen,
@@ -561,7 +604,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -607,6 +650,8 @@ export function createApp() {
           : '';
         const mountLabel = vm.mountPath ? ' [mnt]' : '';
         const elapsed = vm.taskStartedAt ? ` ${formatElapsed(vm.taskStartedAt, Date.now())}` : '';
+        const qCount = queueSize(vm.name);
+        const queueLabel = qCount > 0 ? ` {magenta-fg}[q:${qCount}]{/magenta-fg}` : '';
 
         blessed.box({
           parent: sidebar,
@@ -619,7 +664,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
+          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
         });
       });
@@ -760,8 +805,8 @@ export function createApp() {
       hideDashboard();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename') {
-      // In console/prompt/broadcast/bulk-create/search mode, q goes to the input
+    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue') {
+      // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
     }
     gracefulQuit();
@@ -881,6 +926,14 @@ export function createApp() {
     if (state.mode !== 'normal') return;
     if (state.vms.length === 0) return;
     showBroadcastInput();
+  });
+
+  screen.key(['S-q'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    showQueueInput(vm);
   });
 
   screen.key(['S-c'], () => {
@@ -1092,6 +1145,27 @@ export function createApp() {
     state.mode = 'normal';
     broadcastDialog.hide();
     broadcastInput.cancel();
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  function showQueueInput(vm: VM) {
+    state.mode = 'queue';
+    resetCursor();
+    const qCount = queueSize(vm.name);
+    const countLabel = qCount > 0 ? ` (${qCount} queued)` : '';
+    queueDialog.setLabel(` Queue Prompt for ${vm.displayLabel ?? vm.name}${countLabel} `);
+    queueDialog.show();
+    queueInput.setValue('');
+    queueInput.focus();
+    queueInput.readInput();
+    screen.render();
+  }
+
+  function hideQueueInput() {
+    state.mode = 'normal';
+    queueDialog.hide();
+    queueInput.cancel();
     statusBar.setContent(normalStatusText);
     screen.render();
   }
@@ -1324,6 +1398,37 @@ export function createApp() {
   // Broadcast input cancel
   broadcastInput.on('cancel', () => {
     hideBroadcastInput();
+  });
+
+  // Queue input submission
+  queueInput.on('submit', (value: string) => {
+    const text = value?.trim();
+    hideQueueInput();
+    if (text) {
+      handlers['queue-submit']?.(text);
+    }
+  });
+
+  // Queue input cancel
+  queueInput.on('cancel', () => {
+    hideQueueInput();
+  });
+
+  // History navigation for queue input
+  queueInput.on('keypress', (_ch: string, key: { name: string }) => {
+    if (key.name === 'up') {
+      const entry = historyUp(queueInput.getValue());
+      if (entry !== null) {
+        queueInput.setValue(entry);
+        screen.render();
+      }
+    } else if (key.name === 'down') {
+      const entry = historyDown();
+      if (entry !== null) {
+        queueInput.setValue(entry);
+        screen.render();
+      }
+    }
   });
 
   // Refresh sidebar/dashboard every second so elapsed timers update live

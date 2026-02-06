@@ -210,3 +210,17 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for dashboard mode.
 
 All 217 tests pass. Type checks clean.
+
+## Prompt Queue Feature
+
+Added per-VM prompt queue (press `Q` / Shift-Q) to queue prompts for sequential auto-execution. Essential for autonomous parallel agent orchestration — queue up multiple tasks for each VM and they execute one after another without manual intervention. When a VM finishes a task (attention signal fires), the next queued prompt is automatically sent. Queue count shown as `[q:N]` in both sidebar and dashboard. If a prompt is queued on an idle VM, it sends immediately. Prompt history works in the queue dialog.
+
+Changes:
+- `src/prompt-queue.ts`: New module — per-VM prompt queues with enqueue, dequeue, peek, getQueue, queueSize, clearQueue, clearAllQueues operations. Backed by a Map of string arrays.
+- `src/types.ts`: Added `'queue'` to AppState mode union
+- `src/tui.ts`: Added queue dialog (magenta border, 70% width), `S-q` keybinding, input with prompt history support, submit/cancel handlers. Updated `renderSidebar()` to show `[q:N]` in magenta for VMs with queued prompts. Updated `buildDashboardCell()` to show queue count in dashboard. Updated help screen with new keybinding and queue info (increased dialog height to 39). Updated status bar to include `Q:queue`. Updated `q` key to not quit during queue mode.
+- `src/index.ts`: Added `processQueues()` function that runs after each monitor poll — when a VM has `needsAttention` and queued prompts, automatically clears attention, attaches console, and sends the next `claude -p` command. Added `queue-submit` handler that enqueues the prompt and auto-sends immediately if VM is idle. Integrated queue cleanup into delete, delete-all, quit, and signal handlers.
+- `src/__tests__/prompt-queue.test.ts`: 13 tests covering enqueue/dequeue, FIFO order, peek, queueSize, per-VM isolation, getQueue returns copy, clearQueue, clearAllQueues, edge cases (empty queue, unknown VM).
+- `src/__tests__/types.test.ts`: Added test for queue mode.
+
+All 231 tests pass. Type checks clean.

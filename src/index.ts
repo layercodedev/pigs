@@ -17,6 +17,7 @@ import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
 import { loadHistory, addToHistory } from './prompt-history.js';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
 import { exportLog } from './log-export.js';
+import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues } from './prompt-queue.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -65,9 +66,42 @@ async function main() {
     }
   }
 
+  /**
+   * Process prompt queues: when a VM finishes a task and has queued prompts,
+   * automatically send the next prompt.
+   */
+  async function processQueues() {
+    for (const vm of state.vms) {
+      if (vm.needsAttention && queueSize(vm.name) > 0) {
+        const nextPrompt = dequeue(vm.name);
+        if (!nextPrompt) continue;
+
+        // Clear attention — we're sending the next task
+        clearAttention(vm);
+
+        try {
+          const { cols, rows } = app.getTerminalSize();
+          await attachConsole(client, vm.name, cols, rows);
+          clearOutput(vm.name);
+          connectSessionOutput(vm.name);
+          vm.taskStartedAt = Date.now();
+          const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
+          writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+          app.setStatusMessage(`Auto-sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
+          app.render();
+          setTimeout(() => app.resetStatus(), 3000);
+        } catch (err: any) {
+          app.setStatusMessage(`Queue auto-send failed for ${vm.displayLabel ?? vm.name}: ${err.message}`);
+          setTimeout(() => app.resetStatus(), 3000);
+        }
+      }
+    }
+  }
+
   // Start polling VMs for Claude Code finish notifications
   startMonitor(client, state.vms, () => {
     app.render();
+    processQueues();
   });
 
   /**
@@ -301,6 +335,7 @@ async function main() {
       }
       destroyConsole(vm.name);
       clearOutput(vm.name);
+      clearQueue(vm.name);
       await deleteVM(client, vm.name);
       state.vms.splice(state.sidebarSelectedIndex, 1);
       if (state.sidebarSelectedIndex >= state.vms.length) {
@@ -336,6 +371,7 @@ async function main() {
         }
         destroyConsole(vm.name);
         clearOutput(vm.name);
+        clearQueue(vm.name);
         await deleteVM(client, vm.name);
         deletedNames.add(vm.name);
         app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
@@ -614,6 +650,49 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Queue prompt handler - add prompt to VM's queue for sequential execution
+  app.onKey('queue-submit', async (prompt: string) => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    await addToHistory(prompt);
+
+    if (vm.provisioningStatus !== 'done') {
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    enqueue(vm.name, prompt);
+    const count = queueSize(vm.name);
+    app.setStatusMessage(`Queued prompt for ${vm.displayLabel ?? vm.name} (${count} in queue)`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+
+    // If VM is idle (needs attention or no task running), send immediately
+    if (vm.needsAttention || !vm.taskStartedAt) {
+      const nextPrompt = dequeue(vm.name);
+      if (!nextPrompt) return;
+
+      if (vm.needsAttention) clearAttention(vm);
+
+      try {
+        const { cols, rows } = app.getTerminalSize();
+        await attachConsole(client, vm.name, cols, rows);
+        clearOutput(vm.name);
+        connectSessionOutput(vm.name);
+        vm.taskStartedAt = Date.now();
+        const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
+        writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+        app.setStatusMessage(`Sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
+        app.render();
+      } catch (err: any) {
+        app.setStatusMessage(`Error sending queued prompt: ${err.message}`);
+      }
+      setTimeout(() => app.resetStatus(), 3000);
+    }
+  });
+
   // Unmount VM filesystem handler
   app.onKey('unmount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
@@ -638,6 +717,7 @@ async function main() {
   // Quit handler - detach all sessions gracefully
   app.onKey('quit', async () => {
     stopMonitor();
+    clearAllQueues();
     detachAll();
     await unmountAll();
   });
@@ -645,6 +725,7 @@ async function main() {
   // Handle OS signals for graceful shutdown
   const signalHandler = async () => {
     stopMonitor();
+    clearAllQueues();
     detachAll();
     await unmountAll();
     process.exit(0);
