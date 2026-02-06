@@ -268,6 +268,22 @@ describe('notification-monitor', () => {
       expect(changed).toBe(false);
     });
 
+    it('should skip VMs with customLabel set', async () => {
+      const mockSprite = createMockSprite({
+        stdout: '/root/myproject\nmain\n',
+        stderr: '',
+        exitCode: 0,
+      });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ displayLabel: 'my-custom-name', customLabel: true });
+
+      const changed = await _checkGitLabel(client, vm);
+
+      expect(mockSprite.exec).not.toHaveBeenCalled();
+      expect(vm.displayLabel).toBe('my-custom-name');
+      expect(changed).toBe(false);
+    });
+
     it('should return false when default label unchanged', async () => {
       const mockSprite = createMockSprite({
         stdout: '',

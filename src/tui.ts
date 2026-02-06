@@ -137,7 +137,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -315,7 +315,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 27,
+    height: 28,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -339,6 +339,7 @@ export function createApp() {
       '  D (shift)     Delete ALL VMs at once',
       '  r             Re-provision selected VM (update config)',
       '  R (shift)     Re-provision ALL VMs at once',
+      '  l             Rename/label selected VM',
       '  m             Mount VM filesystem (sshfs)',
       '  u             Unmount VM filesystem',
       '',
@@ -356,6 +357,44 @@ export function createApp() {
       '',
       '  {gray-fg}Press ? or Escape to close{/gray-fg}',
     ].join('\n'),
+  });
+
+  // Rename dialog (hidden by default)
+  const renameDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: '60%',
+    height: 5,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'green' },
+      bg: 'black',
+    },
+    label: ' Rename VM ',
+    tags: true,
+  });
+
+  const renameInput = blessed.textbox({
+    parent: renameDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const renameHint = blessed.text({
+    parent: renameDialog,
+    top: 2,
+    left: 1,
+    content: 'Enter:save  Escape:cancel  (empty to reset)',
+    style: { fg: 'gray' },
   });
 
   // Search dialog (hidden by default)
@@ -388,7 +427,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -581,7 +620,7 @@ export function createApp() {
       hideHelp();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search') {
+    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename') {
       // In console/prompt/broadcast/bulk-create/search mode, q goes to the input
       return;
     }
@@ -737,6 +776,14 @@ export function createApp() {
     showConfirmReprovisionAll(provisioned.length);
   });
 
+  screen.key(['l'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    showRename(vm);
+  });
+
   screen.key(['?'], () => {
     if (state.mode === 'console') return;
     if (state.mode === 'help') {
@@ -881,6 +928,23 @@ export function createApp() {
     screen.render();
   }
 
+  function showRename(vm: VM) {
+    state.mode = 'rename';
+    renameDialog.setLabel(` Rename ${vm.displayLabel ?? vm.name} `);
+    renameDialog.show();
+    renameInput.setValue(vm.displayLabel ?? '');
+    renameInput.focus();
+    renameInput.readInput();
+    screen.render();
+  }
+
+  function hideRename() {
+    state.mode = 'normal';
+    renameDialog.hide();
+    renameInput.cancel();
+    screen.render();
+  }
+
   function showSearch() {
     state.mode = 'search';
     searchDialog.show();
@@ -920,6 +984,20 @@ export function createApp() {
   // Search input cancel
   searchInput.on('cancel', () => {
     hideSearch();
+    render();
+  });
+
+  // Rename input submission
+  renameInput.on('submit', (value: string) => {
+    const text = value?.trim() ?? '';
+    hideRename();
+    handlers['rename-submit']?.(text);
+    render();
+  });
+
+  // Rename input cancel
+  renameInput.on('cancel', () => {
+    hideRename();
     render();
   });
 

@@ -114,3 +114,17 @@ Changes:
 - `src/__tests__/output-buffer.test.ts`: 10 tests covering append, trailing newlines, \r\n handling, per-VM isolation, MAX_LINES trimming, unknown VM default, clear single, clear non-existent, and clear all.
 
 All 162 tests pass. Type checks clean.
+
+## VM Rename/Label Feature
+
+Added VM rename/label (press `l`) to set a custom display label on any VM. Essential for multi-agent orchestration — label each agent by its task (e.g., "frontend", "backend", "api-tests") so you can tell at a glance which agent is doing what. Empty input resets to auto-detected git label. Custom labels are preserved across polling cycles (monitor won't overwrite them).
+
+Changes:
+- `src/types.ts`: Added `'rename'` to AppState mode union, added `customLabel` boolean field to VM interface
+- `src/tui.ts`: Added rename dialog (green border, 60% width), `l` keybinding, input with pre-filled current label, submit/cancel handlers. Updated help screen with new keybinding (increased height to 28). Updated status bar to include `l:rename`. Updated `q` key to not quit during rename mode.
+- `src/index.ts`: Added `rename-submit` handler that sets `vm.displayLabel` and `vm.customLabel` flag. Empty input clears both for auto-detect reset.
+- `src/notification-monitor.ts`: Updated `checkGitLabel()` to skip VMs with `customLabel: true` so user-set labels aren't overwritten by polling.
+- `src/__tests__/types.test.ts`: Added tests for rename mode, customLabel field, and customLabel undefined.
+- `src/__tests__/notification-monitor.test.ts`: Added test verifying checkGitLabel skips VMs with customLabel set.
+
+All 166 tests pass. Type checks clean.

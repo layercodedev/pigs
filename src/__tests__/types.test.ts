@@ -184,6 +184,43 @@ describe('types', () => {
     expect(state.mode).toBe('confirm-reprovision-all');
   });
 
+  it('should support rename mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'rename',
+      settings: null,
+      searchFilter: '',
+    };
+    expect(state.mode).toBe('rename');
+  });
+
+  it('should support customLabel on VM', () => {
+    const vm: VM = {
+      name: 'pigs-abc123',
+      id: 'pigs-abc123',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+      displayLabel: 'my-custom-label',
+      customLabel: true,
+    };
+    expect(vm.customLabel).toBe(true);
+    expect(vm.displayLabel).toBe('my-custom-label');
+  });
+
+  it('should allow customLabel to be undefined', () => {
+    const vm: VM = {
+      name: 'pigs-abc123',
+      id: 'pigs-abc123',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+    };
+    expect(vm.customLabel).toBeUndefined();
+  });
+
   it('should support search mode in AppState', () => {
     const state: AppState = {
       vms: [],

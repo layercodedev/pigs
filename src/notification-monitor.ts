@@ -130,6 +130,9 @@ export function defaultLabel(vmName: string): string {
  * Returns true if the label changed.
  */
 async function checkGitLabel(client: SpritesClient, vm: VM): Promise<boolean> {
+  // Skip VMs with user-set custom labels
+  if (vm.customLabel) return false;
+
   const sprite = client.sprite(vm.name);
   const { stdout } = await sprite.exec(
     'cd /root && git rev-parse --show-toplevel --abbrev-ref HEAD 2>/dev/null || true',

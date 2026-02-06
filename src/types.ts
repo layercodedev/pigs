@@ -7,6 +7,7 @@ export interface VM {
   provisioningStatus?: 'pending' | 'provisioning' | 'done' | 'failed';
   mountPath?: string;
   displayLabel?: string;
+  customLabel?: boolean;
 }
 
 export interface PigsSettings {
@@ -18,7 +19,7 @@ export interface AppState {
   vms: VM[];
   activeVmIndex: number;
   sidebarSelectedIndex: number;
-  mode: 'normal' | 'confirm-delete' | 'creating' | 'console' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search';
+  mode: 'normal' | 'confirm-delete' | 'creating' | 'console' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search' | 'rename';
   searchFilter: string;
   settings: PigsSettings | null;
 }

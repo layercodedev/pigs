@@ -378,6 +378,25 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Rename VM handler - set custom displayLabel
+  app.onKey('rename-submit', (label: string) => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    if (label) {
+      vm.displayLabel = label;
+      vm.customLabel = true;
+      app.setStatusMessage(`Renamed to "${label}"`);
+    } else {
+      // Empty label resets to auto-detected label (will be updated by monitor)
+      vm.displayLabel = undefined;
+      vm.customLabel = false;
+      app.setStatusMessage('Label reset (will auto-detect)');
+    }
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Mount VM filesystem handler
   app.onKey('mount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
