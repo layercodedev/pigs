@@ -143,3 +143,13 @@ Changes:
 - `src/__tests__/notification-monitor.test.ts`: Added test verifying taskStartedAt is cleared when signal file is found.
 
 All 179 tests pass. Type checks clean.
+
+## Stop/Cancel Agent Feature
+
+Added stop/cancel agent (press `x`) to send Ctrl-C to a running agent without attaching to the console. Essential for parallel agent orchestration — when an agent is stuck, going down the wrong path, or you need to interrupt it, press `x` to stop it instantly from the sidebar view instead of having to attach to the console first. Automatically clears the elapsed timer. If no console session exists, one is attached first so the interrupt signal can be delivered.
+
+Changes:
+- `src/tui.ts`: Added `x` keybinding in normal mode that triggers `stop-agent` handler. Updated help screen with new keybinding (increased dialog height to 32). Updated status bar to include `x:stop`.
+- `src/index.ts`: Added `stop-agent` handler that sends Ctrl-C (`\x03`) to the selected VM's console stdin. Attaches a console session if none exists. Clears `vm.taskStartedAt` to stop the elapsed timer.
+
+All 179 tests pass. Type checks clean.

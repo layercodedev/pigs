@@ -397,6 +397,34 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Stop/cancel running agent handler - send Ctrl-C to the VM's console
+  app.onKey('stop-agent', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    // Must have an active console session to send Ctrl-C
+    const session = getSession(vm.name);
+    if (!session?.started) {
+      // Try to attach first so we can send Ctrl-C
+      try {
+        const { cols, rows } = app.getTerminalSize();
+        await attachConsole(client, vm.name, cols, rows);
+        connectSessionOutput(vm.name);
+      } catch (err: any) {
+        app.setStatusMessage(`Cannot stop ${vm.displayLabel ?? vm.name}: ${err.message}`);
+        setTimeout(() => app.resetStatus(), 3000);
+        return;
+      }
+    }
+
+    // Send Ctrl-C (ETX character) to interrupt the running process
+    writeToConsole(vm.name, '\x03');
+    vm.taskStartedAt = undefined;
+    app.setStatusMessage(`Sent stop signal to ${vm.displayLabel ?? vm.name}`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Mount VM filesystem handler
   app.onKey('mount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
