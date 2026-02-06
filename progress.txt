@@ -13,3 +13,18 @@ Completed:
 - Created tests: types.test.ts, sprites-client.test.ts
 - Created vitest.config.ts, .gitignore
 - All tests pass (3/3), typecheck clean, build succeeds
+
+## 2026-02-06 - Iteration 2: Sprites API Integration
+
+Task: Integrate Sprites API - list existing VMs on startup, create VM with pigs- prefix, delete VM with confirmation
+
+Completed:
+- Rewrote src/sprites-client.ts to properly use Sprite type from @fly/sprites SDK instead of `any` casts
+  - Added `spriteToVM()` helper that maps Sprite objects to VM type using real SDK properties (name, id, status, createdAt)
+  - Added `generateVMName()` to create short readable VM names with `pigs-` prefix + 6-char alphanumeric suffix
+  - `listVMs()` filters by `pigs-` prefix via `client.listAllSprites()`
+  - `createVM()` accepts optional name, falls back to generated name
+  - `deleteVM()` delegates to `client.deleteSprite()`
+- Updated src/index.ts create handler to use auto-generated names instead of timestamp-based names
+- Expanded tests from 3 to 16: covers createSpritesClient, generateVMName, spriteToVM (all field mappings + fallbacks), listVMs (with mock client), createVM (generated + explicit names), deleteVM
+- All 16 tests pass, typecheck clean

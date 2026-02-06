@@ -35,9 +35,8 @@ async function main() {
   app.onKey('create', async () => {
     state.mode = 'creating';
     app.setStatusMessage('Creating new agent VM...');
-    const name = `pigs-${Date.now()}`;
     try {
-      const vm = await createVM(client, name);
+      const vm = await createVM(client);
       state.vms.push(vm);
       state.sidebarSelectedIndex = state.vms.length - 1;
       state.activeVmIndex = state.vms.length - 1;
