@@ -208,7 +208,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -386,7 +386,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 34,
+    height: 35,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -419,6 +419,7 @@ export function createApp() {
       '  p             Send prompt to selected VM',
       '  b             Broadcast prompt to all VMs',
       '  x             Stop/cancel running agent (sends Ctrl-C)',
+      '  o             Export VM console log to ~/.pigs/logs/',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
@@ -504,7 +505,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -877,6 +878,14 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm || vm.provisioningStatus !== 'failed') return;
     handlers['retry-provision']?.();
+  });
+
+  screen.key(['o'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+    handlers['export-log']?.();
   });
 
   screen.key(['s'], () => {

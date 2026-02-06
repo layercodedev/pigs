@@ -175,3 +175,15 @@ Changes:
 - `src/index.ts`: Added `retry-provision` handler that resets VM status to `provisioning`, calls `provisionVM()` with full provisioning (install + config), and updates status on success/failure with progress logging.
 
 All 191 tests pass. Type checks clean.
+
+## Export VM Console Log Feature
+
+Added log export (press `o`) to save a VM's console output buffer to a timestamped log file in `~/.pigs/logs/`. Essential for archiving agent work — when an agent finishes a task, press `o` to save its full console output for review, sharing, or debugging. Log files are named with the VM label and timestamp (e.g., `myrepo:main-20250215-093012.log`). If the VM has no buffered output, a helpful message is shown instead.
+
+Changes:
+- `src/log-export.ts`: New module — `buildTimestamp()` for filename-safe dates, `buildLogPath()` for constructing log file paths with sanitized labels, `exportLog()` to create logs directory and write output lines to file.
+- `src/tui.ts`: Added `o` keybinding in normal mode. Updated help screen with new keybinding (increased dialog height to 35). Updated status bar to include `o:export`.
+- `src/index.ts`: Added `export-log` handler that reads the VM's output buffer and writes it to `~/.pigs/logs/` via `exportLog()`. Shows line count and path on success, or "no output" message if buffer is empty.
+- `src/__tests__/log-export.test.ts`: 11 tests covering timestamp formatting (zero-padding, edge cases), path construction (sanitization, colons/dots preserved), export (mkdir + writeFile, trailing newline, empty lines, error propagation).
+
+All 202 tests pass. Type checks clean.

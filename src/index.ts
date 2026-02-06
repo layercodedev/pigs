@@ -16,6 +16,7 @@ import { startMonitor, stopMonitor, clearAttention } from './notification-monito
 import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
 import { loadHistory, addToHistory } from './prompt-history.js';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
+import { exportLog } from './log-export.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -444,6 +445,28 @@ async function main() {
       app.setStatusMessage(`Provisioning failed: ${err.message}`);
     }
     app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Export VM console log handler
+  app.onKey('export-log', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    const lines = getOutput(vm.name);
+    if (lines.length === 0) {
+      app.setStatusMessage(`No output to export for ${vm.displayLabel ?? vm.name}`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    try {
+      const label = vm.displayLabel ?? vm.name;
+      const logPath = await exportLog(label, lines);
+      app.setStatusMessage(`Exported ${lines.length} lines to ${logPath}`);
+    } catch (err: any) {
+      app.setStatusMessage(`Export failed: ${err.message}`);
+    }
     setTimeout(() => app.resetStatus(), 3000);
   });
 
