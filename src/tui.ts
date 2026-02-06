@@ -3,6 +3,7 @@ import type { AppState, SortMode, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 import { getOutput } from './output-buffer.js';
 import { queueSize } from './prompt-queue.js';
+import { stripAnsi } from './ansi.js';
 
 /**
  * Find the index of the next VM that needs attention, starting after currentIndex.
@@ -146,8 +147,8 @@ export function buildDashboardCell(vm: VM, lastLine: string, width: number): str
 
   const statusLine = `${statusIcon} ${vm.status}${provLabel}${mount}${queue}${elapsed}${attention}`;
 
-  // Last output line - truncate to fit width
-  const cleanLast = lastLine.replace(/\{[^}]*\}/g, '').trim();
+  // Last output line - strip ANSI escapes and blessed tags, truncate to fit width
+  const cleanLast = stripAnsi(lastLine).replace(/\{[^}]*\}/g, '').trim();
   const truncLast = cleanLast.length > width - 2 ? cleanLast.slice(0, width - 5) + '...' : cleanLast;
   const outputLine = truncLast || '{gray-fg}(no output){/gray-fg}';
 
@@ -1453,7 +1454,7 @@ export function createApp() {
    */
   function showPreview(lines: string[]) {
     if (lines.length > 0) {
-      terminal.setContent(lines.join('\n'));
+      terminal.setContent(lines.map(l => stripAnsi(l)).join('\n'));
       terminal.setScrollPerc(100);
     } else {
       terminal.setContent('');

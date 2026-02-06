@@ -224,3 +224,14 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for queue mode.
 
 All 231 tests pass. Type checks clean.
+
+## ANSI Escape Code Stripping for Preview and Dashboard
+
+Added ANSI escape code stripping so preview and dashboard displays show clean, readable text instead of garbled escape sequences. Claude Code uses ANSI escape sequences extensively (colors, cursor movement, spinners, progress bars) in its interactive TUI — these rendered as raw escape characters in the preview panel and dashboard grid, making output unreadable. Now all ANSI sequences are stripped before display in preview mode and dashboard cells, while the attached console mode continues to forward raw output for full-fidelity interaction.
+
+Changes:
+- `src/ansi.ts`: New module — `stripAnsi()` function that removes SGR (color/style), cursor movement, erase, scroll region, and other ANSI escape sequences using a comprehensive regex.
+- `src/tui.ts`: Imported `stripAnsi`. Updated `buildDashboardCell()` to strip ANSI escapes from last output line (in addition to existing blessed tag stripping). Updated `showPreview()` to strip ANSI from all buffered output lines before displaying in the terminal box.
+- `src/__tests__/ansi.test.ts`: 12 tests covering plain text passthrough, SGR color codes, bold/italic/underline, 256-color, RGB/truecolor, cursor movement, erase sequences, empty string, multiple sequences, cursor save/restore, ANSI-only strings, and scroll regions.
+
+All 243 tests pass. Type checks clean.
