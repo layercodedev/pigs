@@ -3,6 +3,19 @@ import type { AppState, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 
 /**
+ * Find the index of the next VM that needs attention, starting after currentIndex.
+ * Wraps around the list. Returns -1 if no VM needs attention.
+ */
+export function findNextAttentionIndex(vms: VM[], currentIndex: number): number {
+  if (vms.length === 0) return -1;
+  for (let offset = 1; offset <= vms.length; offset++) {
+    const idx = (currentIndex + offset) % vms.length;
+    if (vms[idx].needsAttention) return idx;
+  }
+  return -1;
+}
+
+/**
  * Build a summary string for the sidebar label from a list of VMs.
  * Returns empty string when there are no VMs.
  */
@@ -108,7 +121,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  j/k:nav  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -268,7 +281,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 22,
+    height: 23,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -281,6 +294,7 @@ export function createApp() {
       '  {bold}Navigation{/bold}',
       '  j / ↓         Move selection down',
       '  k / ↑         Move selection up',
+      '  a             Jump to next VM needing attention',
       '  Enter         Attach console to selected VM',
       '  Escape        Detach from console',
       '',
@@ -306,7 +320,7 @@ export function createApp() {
     ].join('\n'),
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  j/k:nav  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -586,6 +600,15 @@ export function createApp() {
     if (state.mode !== 'normal') return;
     if (state.vms.length === 0) return;
     showConfirmDeleteAll(state.vms.length);
+  });
+
+  screen.key(['a'], () => {
+    if (state.mode !== 'normal') return;
+    const nextIdx = findNextAttentionIndex(state.vms, state.sidebarSelectedIndex);
+    if (nextIdx >= 0) {
+      state.sidebarSelectedIndex = nextIdx;
+      render();
+    }
   });
 
   screen.key(['?'], () => {

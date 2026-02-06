@@ -66,3 +66,13 @@ Changes:
 - `src/__tests__/vm-summary.test.ts`: 8 tests covering empty list, single VM, ready count, setup count, attention count, failed count, mixed fleet, and zero-count omission.
 
 All 123 tests pass. Type checks clean.
+
+## Jump to Next Attention VM Feature
+
+Added jump-to-attention navigation (press `a`) to cycle through VMs that need attention. When orchestrating many parallel agents, this is essential for quickly jumping between agents that have finished their tasks — instead of manually scanning the sidebar, press `a` to hop to the next VM with a red `!` indicator. Wraps around the list so you can keep pressing `a` to cycle through all attention VMs.
+
+Changes:
+- `src/tui.ts`: Added `findNextAttentionIndex()` pure function that searches for the next VM with `needsAttention: true` starting after the current index, with wraparound. Added `a` keybinding in normal mode. Updated help screen with new keybinding (increased dialog height to 23). Updated status bar to include `a:next-attn`.
+- `src/__tests__/find-attention.test.ts`: 10 tests covering empty list, no attention VMs, forward find, wraparound, multiple attention VMs cycling, single VM edge cases.
+
+All 133 tests pass. Type checks clean.
