@@ -1272,6 +1272,10 @@ export function createApp() {
   });
 
   screen.key(['s'], () => {
+    if (state.mode === 'pr-chain') {
+      handlers['pr-chain-sync']?.();
+      return;
+    }
     if (state.mode !== 'normal') return;
     state.sortMode = nextSortMode(state.sortMode);
     render();
@@ -1618,7 +1622,7 @@ export function createApp() {
     prChainOverlay.setLabel(' PR Chain ');
     prChainOverlay.show();
     prChainOverlay.focus();
-    statusBar.setContent(' g:close  r:refresh  j/k:scroll  Escape:close');
+    statusBar.setContent(' g:close  r:refresh  s:sync(rebase)  j/k:scroll  Escape:close');
     screen.render();
     handlers['pr-chain-open']?.();
   }

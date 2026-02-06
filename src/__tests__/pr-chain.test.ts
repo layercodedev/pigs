@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPRTree, renderPRTree } from '../pr-chain.js';
+import { buildPRTree, renderPRTree, findStalePRs } from '../pr-chain.js';
 import type { PRInfo } from '../pr-chain.js';
 
 function makePR(overrides: Partial<PRInfo> & Pick<PRInfo, 'number' | 'headRefName' | 'baseRefName'>): PRInfo {
@@ -166,5 +166,92 @@ describe('renderPRTree', () => {
     expect(lines.some(l => l.includes('#13'))).toBe(true);
     expect(lines.some(l => l.includes('#14'))).toBe(true);
     expect(lines.some(l => l.includes('#16'))).toBe(true);
+  });
+
+  it('should show STALE indicator for PRs whose parent branch is merged', () => {
+    const prs = [
+      makePR({ number: 12, headRefName: 'add-auth', baseRefName: 'main', state: 'MERGED' }),
+      makePR({ number: 13, headRefName: 'api-routes', baseRefName: 'add-auth', state: 'OPEN' }),
+      makePR({ number: 14, headRefName: 'add-tests', baseRefName: 'api-routes', state: 'OPEN', isDraft: true }),
+      makePR({ number: 16, headRefName: 'fix-typo', baseRefName: 'main', state: 'OPEN' }),
+    ];
+    const tree = buildPRTree(prs, 'main');
+    const lines = renderPRTree(tree, 'api-routes', 80);
+    // #13 targets add-auth which is MERGED → should be stale
+    const line13 = lines.find(l => l.includes('#13'));
+    expect(line13).toContain('STALE');
+    // #14 targets api-routes which is NOT merged → should not be stale
+    const line14 = lines.find(l => l.includes('#14'));
+    expect(line14).not.toContain('STALE');
+    // #12 is MERGED itself → should not be stale
+    const line12 = lines.find(l => l.includes('#12'));
+    expect(line12).not.toContain('STALE');
+    // #16 targets main → should not be stale
+    const line16 = lines.find(l => l.includes('#16'));
+    expect(line16).not.toContain('STALE');
+  });
+
+  it('should not show STALE for closed or merged PRs even if parent is merged', () => {
+    const prs = [
+      makePR({ number: 12, headRefName: 'add-auth', baseRefName: 'main', state: 'MERGED' }),
+      makePR({ number: 13, headRefName: 'api-routes', baseRefName: 'add-auth', state: 'MERGED' }),
+      makePR({ number: 14, headRefName: 'add-tests', baseRefName: 'add-auth', state: 'CLOSED' }),
+    ];
+    const tree = buildPRTree(prs, 'main');
+    const lines = renderPRTree(tree, '', 80);
+    // #13 is MERGED → should not be stale even though parent is merged
+    const line13 = lines.find(l => l.includes('#13'));
+    expect(line13).not.toContain('STALE');
+    // #14 is CLOSED → should not be stale
+    const line14 = lines.find(l => l.includes('#14'));
+    expect(line14).not.toContain('STALE');
+  });
+});
+
+describe('findStalePRs', () => {
+  it('should return empty array when no PRs are stale', () => {
+    const prs = [
+      makePR({ number: 1, headRefName: 'feat-a', baseRefName: 'main', state: 'OPEN' }),
+      makePR({ number: 2, headRefName: 'feat-b', baseRefName: 'main', state: 'OPEN' }),
+    ];
+    expect(findStalePRs(prs, 'main')).toEqual([]);
+  });
+
+  it('should detect PRs whose base branch has a merged PR', () => {
+    const prs = [
+      makePR({ number: 12, headRefName: 'add-auth', baseRefName: 'main', state: 'MERGED' }),
+      makePR({ number: 13, headRefName: 'api-routes', baseRefName: 'add-auth', state: 'OPEN' }),
+      makePR({ number: 14, headRefName: 'add-tests', baseRefName: 'api-routes', state: 'OPEN', isDraft: true }),
+      makePR({ number: 16, headRefName: 'fix-typo', baseRefName: 'main', state: 'OPEN' }),
+    ];
+    const stale = findStalePRs(prs, 'main');
+    expect(stale).toHaveLength(1);
+    expect(stale[0].number).toBe(13);
+  });
+
+  it('should not include merged or closed PRs in stale results', () => {
+    const prs = [
+      makePR({ number: 12, headRefName: 'add-auth', baseRefName: 'main', state: 'MERGED' }),
+      makePR({ number: 13, headRefName: 'api-routes', baseRefName: 'add-auth', state: 'MERGED' }),
+      makePR({ number: 14, headRefName: 'add-tests', baseRefName: 'add-auth', state: 'CLOSED' }),
+    ];
+    const stale = findStalePRs(prs, 'main');
+    expect(stale).toHaveLength(0);
+  });
+
+  it('should detect multiple stale PRs in a chain', () => {
+    const prs = [
+      makePR({ number: 10, headRefName: 'feat-a', baseRefName: 'main', state: 'MERGED' }),
+      makePR({ number: 11, headRefName: 'feat-b', baseRefName: 'feat-a', state: 'MERGED' }),
+      makePR({ number: 12, headRefName: 'feat-c', baseRefName: 'feat-a', state: 'OPEN' }),
+      makePR({ number: 13, headRefName: 'feat-d', baseRefName: 'feat-b', state: 'OPEN' }),
+    ];
+    const stale = findStalePRs(prs, 'main');
+    expect(stale).toHaveLength(2);
+    expect(stale.map(p => p.number).sort()).toEqual([12, 13]);
+  });
+
+  it('should return empty array for no PRs', () => {
+    expect(findStalePRs([], 'main')).toEqual([]);
   });
 });

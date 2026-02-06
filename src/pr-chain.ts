@@ -111,6 +111,18 @@ function statusLabel(state: string, isDraft: boolean): string {
 export function renderPRTree(tree: PRTreeNode, currentBranch: string, width: number): string[] {
   const lines: string[] = [];
 
+  // Build set of branch names that have a MERGED PR (for stale detection)
+  const mergedBranches = new Set<string>();
+  function collectMerged(node: PRTreeNode) {
+    if (node.pr?.state === 'MERGED') {
+      mergedBranches.add(node.branch);
+    }
+    for (const child of node.children) {
+      collectMerged(child);
+    }
+  }
+  collectMerged(tree);
+
   lines.push(`  ${tree.branch}`);
 
   function renderNode(node: PRTreeNode, prefix: string, isLast: boolean) {
@@ -120,7 +132,10 @@ export function renderPRTree(tree: PRTreeNode, currentBranch: string, width: num
       const color = statusColor(pr.state, pr.isDraft);
       const label = statusLabel(pr.state, pr.isDraft);
       const current = node.branch === currentBranch ? '  {bold}← current{/bold}' : '';
-      const prLine = `  ${prefix}${connector} {${color}-fg}#${pr.number}{/${color}-fg} ${pr.headRefName} {${color}-fg}${label}{/${color}-fg}${current}`;
+      // Stale: PR's base branch has a merged PR (parent was merged)
+      const stale = pr.state !== 'MERGED' && pr.state !== 'CLOSED' && mergedBranches.has(pr.baseRefName)
+        ? '  {red-fg}⚠ STALE{/red-fg}' : '';
+      const prLine = `  ${prefix}${connector} {${color}-fg}#${pr.number}{/${color}-fg} ${pr.headRefName} {${color}-fg}${label}{/${color}-fg}${stale}${current}`;
       lines.push(prLine);
     }
 
@@ -147,4 +162,23 @@ export function renderPRTree(tree: PRTreeNode, currentBranch: string, width: num
   }
 
   return lines;
+}
+
+/**
+ * Find PRs that are stale — their base branch has a merged PR,
+ * meaning the parent was merged and the child needs rebasing/retargeting.
+ */
+export function findStalePRs(prs: PRInfo[], defaultBranch: string): PRInfo[] {
+  const mergedHeadBranches = new Set<string>();
+  for (const pr of prs) {
+    if (pr.state === 'MERGED') {
+      mergedHeadBranches.add(pr.headRefName);
+    }
+  }
+
+  return prs.filter(pr =>
+    pr.state !== 'MERGED' &&
+    pr.state !== 'CLOSED' &&
+    mergedHeadBranches.has(pr.baseRefName),
+  );
 }

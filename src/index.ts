@@ -18,7 +18,7 @@ import { loadHistory, addToHistory } from './prompt-history.js';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
 import { exportLog } from './log-export.js';
 import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.js';
-import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache } from './pr-chain.js';
+import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -615,6 +615,63 @@ async function main() {
     clearPRCache(vm.name);
     app.renderPRChain('\n  {yellow-fg}Refreshing PR data...{/yellow-fg}', 'PR Chain');
     await fetchAndRenderPRChain();
+  });
+
+  // PR chain sync handler - send rebase prompt to the selected VM's agent
+  app.onKey('pr-chain-sync', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    if (vm.provisioningStatus !== 'done') {
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    app.setStatusMessage(`Syncing ${vm.displayLabel ?? vm.name}...`);
+
+    try {
+      const [prs, currentBranch, defaultBranch] = await Promise.all([
+        fetchPRChain(client, vm.name),
+        getCurrentBranch(client, vm.name),
+        getDefaultBranch(client, vm.name),
+      ]);
+
+      // Find the PR for this VM's current branch
+      const currentPR = prs.find(pr => pr.headRefName === currentBranch);
+      if (!currentPR) {
+        app.setStatusMessage(`No PR found for branch "${currentBranch}"`);
+        setTimeout(() => app.resetStatus(), 3000);
+        return;
+      }
+
+      // Check if this PR is stale
+      const stalePRs = findStalePRs(prs, defaultBranch);
+      const isStale = stalePRs.some(pr => pr.number === currentPR.number);
+      if (!isStale) {
+        app.setStatusMessage(`PR #${currentPR.number} is not stale — no sync needed`);
+        setTimeout(() => app.resetStatus(), 3000);
+        return;
+      }
+
+      // Send rebase prompt to the agent
+      const { cols, rows } = app.getTerminalSize();
+      await attachConsole(client, vm.name, cols, rows);
+      state.activeVmIndex = state.sidebarSelectedIndex;
+      clearOutput(vm.name);
+      app.clearTerminal();
+      connectSessionOutput(vm.name);
+      vm.taskStartedAt = Date.now();
+
+      const rebasePrompt = `Your PR #${currentPR.number} (branch "${currentBranch}") targets "${currentPR.baseRefName}" which has been merged into ${defaultBranch}. Please: 1) git fetch origin, 2) retarget your PR to ${defaultBranch} with \`gh pr edit ${currentPR.number} --base ${defaultBranch}\`, 3) rebase your branch onto origin/${defaultBranch}, 4) resolve any conflicts, 5) force-push with \`git push --force-with-lease\`.`;
+      const escapedPrompt = rebasePrompt.replace(/'/g, "'\\''");
+      writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+
+      app.enterConsoleMode();
+    } catch (err: any) {
+      app.setStatusMessage(`Sync failed: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
   });
 
   // Mount VM filesystem handler

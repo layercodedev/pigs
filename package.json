@@ -18,6 +18,7 @@
     "@fly/sprites": "^0.0.1",
     "blessed": "^0.1.81"
   },
+  "license": "MIT",
   "devDependencies": {
     "@types/blessed": "^0.1.25",
     "@types/node": "^22.0.0",
