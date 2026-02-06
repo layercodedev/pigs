@@ -208,7 +208,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -386,7 +386,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 33,
+    height: 34,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -411,6 +411,7 @@ export function createApp() {
       '  r             Re-provision selected VM (update config)',
       '  R (shift)     Re-provision ALL VMs at once',
       '  l             Rename/label selected VM',
+      '  t             Retry provisioning on failed VM',
       '  m             Mount VM filesystem (sshfs)',
       '  u             Unmount VM filesystem',
       '',
@@ -503,7 +504,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -868,6 +869,14 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     handlers['stop-agent']?.();
+  });
+
+  screen.key(['t'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm || vm.provisioningStatus !== 'failed') return;
+    handlers['retry-provision']?.();
   });
 
   screen.key(['s'], () => {

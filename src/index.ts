@@ -425,6 +425,28 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Retry provisioning for failed VMs
+  app.onKey('retry-provision', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm || vm.provisioningStatus !== 'failed') return;
+
+    vm.provisioningStatus = 'provisioning';
+    app.setStatusMessage(`Retrying provisioning for ${vm.displayLabel ?? vm.name}...`);
+    app.render();
+    try {
+      await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+        app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
+      });
+      vm.provisioningStatus = 'done';
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} provisioned`);
+    } catch (err: any) {
+      vm.provisioningStatus = 'failed';
+      app.setStatusMessage(`Provisioning failed: ${err.message}`);
+    }
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Mount VM filesystem handler
   app.onKey('mount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];

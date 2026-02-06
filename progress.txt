@@ -165,3 +165,13 @@ Changes:
 - `src/__tests__/types.test.ts`: Added `sortMode` to all AppState test instances, added test for all SortMode values
 
 All 191 tests pass. Type checks clean.
+
+## Retry Failed Provisioning Feature
+
+Added retry provisioning (press `t`) to re-attempt provisioning on a VM that failed. Essential for error recovery — when a VM fails during provisioning (network issues, timeouts, etc.), press `t` to retry without having to delete and recreate the VM. The VM status transitions from `failed` back to `provisioning` during the retry, and updates to `done` on success or back to `failed` on another failure. Only available when a failed VM is selected.
+
+Changes:
+- `src/tui.ts`: Added `t` keybinding in normal mode (only triggers when selected VM has `provisioningStatus === 'failed'`). Updated help screen with new keybinding (increased dialog height to 34). Updated status bar to include `t:retry`.
+- `src/index.ts`: Added `retry-provision` handler that resets VM status to `provisioning`, calls `provisionVM()` with full provisioning (install + config), and updates status on success/failure with progress logging.
+
+All 191 tests pass. Type checks clean.
