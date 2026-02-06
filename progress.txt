@@ -1,0 +1,15 @@
+## 2026-02-06 - Iteration 1: Project Scaffolding
+
+Task: Scaffold TypeScript project with basic TUI layout
+
+Completed:
+- Created package.json with dependencies: blessed (TUI), @fly/sprites (Sprites SDK), TypeScript, vitest
+- Created tsconfig.json for ES2022 + Node16 module resolution
+- Created src/types.ts with VM and AppState type definitions
+- Created src/sprites-client.ts wrapping @fly/sprites SDK (createSpritesClient, listVMs, createVM, deleteVM)
+- Created src/tui.ts with blessed-based TUI: sidebar VM list, main console view, status bar, confirm dialog
+  - Key bindings: c (create), d (delete), j/k (navigate), Enter (activate), q (quit), m (mount), y/n (confirm)
+- Created src/index.ts entry point wiring TUI to sprites client
+- Created tests: types.test.ts, sprites-client.test.ts
+- Created vitest.config.ts, .gitignore
+- All tests pass (3/3), typecheck clean, build succeeds

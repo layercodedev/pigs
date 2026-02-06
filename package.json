@@ -1,0 +1,27 @@
+{
+  "name": "pigs",
+  "version": "0.1.0",
+  "description": "TUI for managing Claude Code agent VMs on sprites.dev",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "pigs": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-vm-modules node_modules/.bin/vitest run"
+  },
+  "dependencies": {
+    "@fly/sprites": "^0.0.1",
+    "blessed": "^0.1.81"
+  },
+  "devDependencies": {
+    "@types/blessed": "^0.1.25",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
