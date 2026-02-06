@@ -88,8 +88,8 @@ describe('provisionVM', () => {
     await provisionVM(client, 'pigs-abc123', { claudeMd: '# Test' });
 
     expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-    // First exec: provision script
-    expect(mockSprite.exec).toHaveBeenCalledTimes(2);
+    // Three execs: provision script, CLAUDE.md, notification hook
+    expect(mockSprite.exec).toHaveBeenCalledTimes(3);
     const firstCall = mockSprite.exec.mock.calls[0][0] as string;
     expect(firstCall).toContain('claude');
     expect(firstCall).toContain('sshd');

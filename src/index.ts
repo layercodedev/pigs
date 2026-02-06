@@ -12,6 +12,7 @@ import {
   getSession,
 } from './console-session.js';
 import { loadSettings, provisionVM } from './provisioner.js';
+import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
@@ -48,6 +49,11 @@ async function main() {
   app.render();
   app.resetStatus();
 
+  // Start polling VMs for Claude Code finish notifications
+  startMonitor(client, state.vms, () => {
+    app.render();
+  });
+
   /**
    * Connect stdout/stderr from a console session to the terminal display.
    */
@@ -77,6 +83,9 @@ async function main() {
   app.onKey('activate', async () => {
     const vm = state.vms[state.activeVmIndex];
     if (!vm) return;
+
+    // Clear attention indicator when user activates this VM
+    clearAttention(vm);
 
     // Detach from any previously active session's output listeners
     for (const v of state.vms) {
@@ -184,6 +193,7 @@ async function main() {
 
   // Quit handler - detach all sessions gracefully
   app.onKey('quit', () => {
+    stopMonitor();
     detachAll();
   });
 }

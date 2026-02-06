@@ -126,7 +126,7 @@ export function createApp() {
       state.vms.forEach((vm, i) => {
         const isActive = i === state.activeVmIndex;
         const isSelected = i === state.sidebarSelectedIndex;
-        const attention = vm.needsAttention ? ' !' : '';
+        const attention = vm.needsAttention ? ' {red-fg}{bold}!{/bold}{/red-fg}' : '';
         const statusIcon = vm.status === 'running' ? '*' : '-';
         const prefix = isActive ? '>' : ' ';
         const provLabel = vm.provisioningStatus === 'provisioning' ? ' [setup]'
@@ -142,7 +142,7 @@ export function createApp() {
           height: 3,
           border: isSelected ? { type: 'line' } : undefined,
           style: {
-            border: { fg: isSelected ? 'yellow' : 'cyan' },
+            border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
           content: `${prefix} ${statusIcon} ${vm.name}${attention}\n  ${vm.status}${provLabel}`,

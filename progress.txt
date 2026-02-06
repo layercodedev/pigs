@@ -118,3 +118,36 @@ Completed:
   - Added test for fallback to `loadSettings()` when no settings are provided
   - Added test verifying provided settings are used without reading from disk
 - All 46 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 6: Notification Hook
+
+Task: Claude code finish hook sends signal, TUI polls/listens and shows attention indicator on VM card
+
+Completed:
+- Created src/notification-monitor.ts module for polling VMs for Claude Code finish signals
+  - `STOP_HOOK_COMMAND`: shell command (`touch /tmp/claude-done-signal`) installed as Claude Code Stop hook
+  - `CLAUDE_HOOKS_CONFIG`: Claude Code settings.json structure with Stop hook configuration
+  - `startMonitor()`: starts interval-based polling (every 5s) of provisioned VMs
+  - `stopMonitor()`: clears the polling interval
+  - `clearAttention()`: resets VM's needsAttention flag (called when user activates VM)
+  - `_pollAll()`: checks all provisioned VMs that don't already need attention
+  - `_checkSignal()`: runs `test -f` on the signal file via sprite.exec(), sets needsAttention and removes signal
+- Updated src/provisioner.ts:
+  - Added Step 3 to provisioning: writes Claude Code hooks config to /root/.claude/settings.json on VM
+  - Uses base64 encoding (same pattern as CLAUDE.md) to write the hooks JSON safely
+  - Imports CLAUDE_HOOKS_CONFIG from notification-monitor module
+- Updated src/index.ts:
+  - Starts notification monitor after loading VMs, with onChange callback to re-render TUI
+  - Clears attention flag when user activates a VM (Enter key)
+  - Stops monitor on quit
+- Updated src/tui.ts:
+  - Attention indicator now uses blessed tags for red bold `!` marker: `{red-fg}{bold}!{/bold}{/red-fg}`
+  - VM card border turns red when needsAttention is true (overrides selection highlight)
+- Created src/__tests__/notification-monitor.test.ts with 15 tests covering:
+  - CLAUDE_HOOKS_CONFIG structure and Stop hook command
+  - clearAttention: flag reset, safe no-op
+  - _checkSignal: signal found (sets needsAttention), no signal (leaves false), rm -f cleanup
+  - _pollAll: checks provisioned VMs, skips unprovisioned, skips already-attention, no false onChange, error handling, multi-VM
+  - startMonitor/stopMonitor: no duplicate timers, stops polling
+- Updated src/__tests__/provisioner.test.ts: exec call count updated from 2 to 3
+- All 61 tests pass, typecheck clean

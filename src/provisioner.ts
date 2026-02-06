@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SpritesClient } from '@fly/sprites';
 import type { PigsSettings } from './types.js';
+import { CLAUDE_HOOKS_CONFIG } from './notification-monitor.js';
 
 const SETTINGS_DIR = join(homedir(), '.pigs');
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json');
@@ -62,4 +63,11 @@ export async function provisionVM(
   const b64 = Buffer.from(resolvedSettings.claudeMd).toString('base64');
   await sprite.exec(`echo '${b64}' | base64 -d > /root/CLAUDE.md`);
   log('CLAUDE.md written.');
+
+  // Step 3: Install Claude Code Stop hook for finish notifications
+  log('Installing notification hook...');
+  const hooksJson = JSON.stringify(CLAUDE_HOOKS_CONFIG);
+  const hooksB64 = Buffer.from(hooksJson).toString('base64');
+  await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
+  log('Notification hook installed.');
 }
