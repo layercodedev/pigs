@@ -2,6 +2,28 @@ import blessed from 'blessed';
 import type { AppState, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 
+/**
+ * Build a summary string for the sidebar label from a list of VMs.
+ * Returns empty string when there are no VMs.
+ */
+export function buildVmSummary(vms: VM[]): string {
+  if (vms.length === 0) return '';
+
+  const total = vms.length;
+  const ready = vms.filter(vm => vm.provisioningStatus === 'done').length;
+  const setup = vms.filter(vm => vm.provisioningStatus === 'provisioning' || vm.provisioningStatus === 'pending').length;
+  const attention = vms.filter(vm => vm.needsAttention).length;
+  const failed = vms.filter(vm => vm.provisioningStatus === 'failed').length;
+
+  const parts: string[] = [`${total}`];
+  if (ready > 0) parts.push(`${ready} ready`);
+  if (setup > 0) parts.push(`${setup} setup`);
+  if (attention > 0) parts.push(`${attention} !`);
+  if (failed > 0) parts.push(`${failed} fail`);
+
+  return parts.join(', ');
+}
+
 export function createApp() {
   const screen = blessed.screen({
     smartCSR: true,
@@ -291,6 +313,14 @@ export function createApp() {
     sidebar.children.forEach((child) => {
       if (child !== sidebar) child.detach();
     });
+
+    // Update sidebar label with VM status summary
+    const summary = buildVmSummary(state.vms);
+    if (summary) {
+      sidebar.setLabel(` VMs (${summary}) `);
+    } else {
+      sidebar.setLabel(' VMs ');
+    }
 
     if (state.vms.length === 0) {
       blessed.text({

@@ -56,3 +56,13 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for confirm-delete-all mode
 
 All 115 tests pass. Type checks clean.
+
+## VM Status Summary Feature
+
+Added dynamic VM status summary in the sidebar header label. When VMs exist, the sidebar title shows at-a-glance fleet status like `VMs (5, 3 ready, 1 setup, 1 !)` — essential for monitoring a fleet of parallel agents without scanning every entry. Shows total count plus breakdowns for ready, setup (provisioning/pending), attention (!), and failed VMs. Categories with zero count are omitted for clarity.
+
+Changes:
+- `src/tui.ts`: Extracted `buildVmSummary()` pure function that computes summary string from VM array. Updated `renderSidebar()` to dynamically set sidebar label with summary on each render. Summary updates live as VMs are created, provisioned, finish tasks, or fail.
+- `src/__tests__/vm-summary.test.ts`: 8 tests covering empty list, single VM, ready count, setup count, attention count, failed count, mixed fleet, and zero-count omission.
+
+All 123 tests pass. Type checks clean.
