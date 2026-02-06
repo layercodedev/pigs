@@ -71,3 +71,32 @@ export async function provisionVM(
   await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
   log('Notification hook installed.');
 }
+
+/**
+ * Re-provision a VM: reload settings and update CLAUDE.md + hooks.
+ * Skips the expensive install step — only pushes config changes.
+ */
+export async function reprovisionVM(
+  client: SpritesClient,
+  vmName: string,
+  onLog?: (msg: string) => void,
+): Promise<void> {
+  const sprite = client.sprite(vmName);
+  const log = onLog ?? (() => {});
+
+  // Reload settings from disk to pick up any changes
+  const settings = await loadSettings();
+
+  // Update CLAUDE.md
+  log('Updating CLAUDE.md...');
+  const b64 = Buffer.from(settings.claudeMd).toString('base64');
+  await sprite.exec(`echo '${b64}' | base64 -d > /root/CLAUDE.md`);
+  log('CLAUDE.md updated.');
+
+  // Update hooks
+  log('Updating notification hook...');
+  const hooksJson = JSON.stringify(CLAUDE_HOOKS_CONFIG);
+  const hooksB64 = Buffer.from(hooksJson).toString('base64');
+  await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
+  log('Notification hook updated.');
+}

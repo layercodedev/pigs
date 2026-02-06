@@ -121,7 +121,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  j/k:nav  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -274,6 +274,24 @@ export function createApp() {
     tags: true,
   });
 
+  // Confirm reprovision all dialog (hidden by default)
+  const confirmReprovisionAllDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 50,
+    height: 7,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'yellow' },
+      bg: 'black',
+    },
+    label: ' Confirm Re-provision All ',
+    content: '',
+    tags: true,
+  });
+
   // Help screen dialog (hidden by default)
   const helpDialog = blessed.box({
     parent: screen,
@@ -281,7 +299,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 23,
+    height: 25,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -303,6 +321,8 @@ export function createApp() {
       '  C (shift)     Create multiple VMs at once',
       '  d             Delete selected VM',
       '  D (shift)     Delete ALL VMs at once',
+      '  r             Re-provision selected VM (update config)',
+      '  R (shift)     Re-provision ALL VMs at once',
       '  m             Mount VM filesystem (sshfs)',
       '  u             Unmount VM filesystem',
       '',
@@ -320,7 +340,7 @@ export function createApp() {
     ].join('\n'),
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  j/k:nav  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -430,6 +450,22 @@ export function createApp() {
     screen.render();
   }
 
+  function showConfirmReprovisionAll(count: number) {
+    state.mode = 'confirm-reprovision-all';
+    confirmReprovisionAllDialog.setContent(
+      `\n  Re-provision ALL ${count} VMs?\n  (reloads CLAUDE.md + hooks)\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
+    );
+    confirmReprovisionAllDialog.show();
+    confirmReprovisionAllDialog.focus();
+    screen.render();
+  }
+
+  function hideConfirmReprovisionAll() {
+    state.mode = 'normal';
+    confirmReprovisionAllDialog.hide();
+    screen.render();
+  }
+
   function render() {
     renderSidebar();
     renderMainView();
@@ -481,6 +517,10 @@ export function createApp() {
       hideConfirmDeleteAll();
       return;
     }
+    if (state.mode === 'confirm-reprovision-all') {
+      hideConfirmReprovisionAll();
+      return;
+    }
     if (state.mode === 'help') {
       hideHelp();
       return;
@@ -499,6 +539,10 @@ export function createApp() {
     }
     if (state.mode === 'confirm-delete-all') {
       hideConfirmDeleteAll();
+      return;
+    }
+    if (state.mode === 'confirm-reprovision-all') {
+      hideConfirmReprovisionAll();
       return;
     }
     // Ctrl-C always quits, even from console mode
@@ -556,6 +600,9 @@ export function createApp() {
     } else if (state.mode === 'confirm-delete-all') {
       hideConfirmDeleteAll();
       handlers['delete-all']?.();
+    } else if (state.mode === 'confirm-reprovision-all') {
+      hideConfirmReprovisionAll();
+      handlers['reprovision-all']?.();
     }
   });
 
@@ -564,6 +611,8 @@ export function createApp() {
       hideConfirmDelete();
     } else if (state.mode === 'confirm-delete-all') {
       hideConfirmDeleteAll();
+    } else if (state.mode === 'confirm-reprovision-all') {
+      hideConfirmReprovisionAll();
     }
   });
 
@@ -609,6 +658,21 @@ export function createApp() {
       state.sidebarSelectedIndex = nextIdx;
       render();
     }
+  });
+
+  screen.key(['r'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm || vm.provisioningStatus !== 'done') return;
+    handlers['reprovision']?.();
+  });
+
+  screen.key(['S-r'], () => {
+    if (state.mode !== 'normal') return;
+    const provisioned = state.vms.filter(vm => vm.provisioningStatus === 'done');
+    if (provisioned.length === 0) return;
+    showConfirmReprovisionAll(provisioned.length);
   });
 
   screen.key(['?'], () => {

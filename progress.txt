@@ -76,3 +76,17 @@ Changes:
 - `src/__tests__/find-attention.test.ts`: 10 tests covering empty list, no attention VMs, forward find, wraparound, multiple attention VMs cycling, single VM edge cases.
 
 All 133 tests pass. Type checks clean.
+
+## Re-provision VM Feature
+
+Added re-provision (press `r`) to update the selected VM's CLAUDE.md and hooks config from disk, and re-provision all (press `R`) to push updated config to every provisioned VM in parallel. Essential for iterating on agent instructions — edit `~/.pigs/settings.json`, then press `r` or `R` to push changes to your fleet without recreating VMs.
+
+Changes:
+- `src/types.ts`: Added `'confirm-reprovision-all'` to AppState mode union
+- `src/provisioner.ts`: Added `reprovisionVM()` function — reloads settings from disk and updates CLAUDE.md + hooks (skips expensive install step)
+- `src/tui.ts`: Added confirm-reprovision-all dialog (yellow border, 50x7), `r` keybinding for single VM, `S-r` keybinding for all VMs with y/n confirmation, q/Ctrl-C to dismiss dialog. Updated help screen with new keybindings (increased dialog height to 25). Updated status bar to include `r:reprov  R:reprov-all`.
+- `src/index.ts`: Added `reprovision` handler that reloads settings and calls `reprovisionVM` on selected VM. Added `reprovision-all` handler that reloads settings once, then re-provisions all provisioned VMs in parallel with progress tracking.
+- `src/__tests__/provisioner.test.ts`: 6 tests for `reprovisionVM` covering exec count (no install), settings reload from disk, hooks update, onLog callbacks, error propagation, and silent mode.
+- `src/__tests__/types.test.ts`: Added test for confirm-reprovision-all mode.
+
+All 140 tests pass. Type checks clean.

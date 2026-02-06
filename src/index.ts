@@ -11,7 +11,7 @@ import {
   detachAll,
   getSession,
 } from './console-session.js';
-import { loadSettings, provisionVM } from './provisioner.js';
+import { loadSettings, provisionVM, reprovisionVM } from './provisioner.js';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
 import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
 import { loadHistory, addToHistory } from './prompt-history.js';
@@ -300,6 +300,63 @@ async function main() {
 
     const failMsg = failed > 0 ? ` (${failed} failed)` : '';
     app.setStatusMessage(`Deleted ${deletedNames.size} VMs${failMsg}`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Re-provision selected VM handler
+  app.onKey('reprovision', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm || vm.provisioningStatus !== 'done') return;
+
+    app.setStatusMessage(`Re-provisioning ${vm.displayLabel ?? vm.name}...`);
+    try {
+      // Reload settings from disk
+      state.settings = await loadSettings();
+      await reprovisionVM(client, vm.name, (msg) => {
+        app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
+      });
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} re-provisioned`);
+    } catch (err: any) {
+      app.setStatusMessage(`Re-provision failed: ${err.message}`);
+    }
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Re-provision all VMs handler
+  app.onKey('reprovision-all', async () => {
+    const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
+    if (targets.length === 0) return;
+
+    app.setStatusMessage(`Re-provisioning ${targets.length} VMs...`);
+
+    // Reload settings from disk once
+    try {
+      state.settings = await loadSettings();
+    } catch (err: any) {
+      app.setStatusMessage(`Failed to load settings: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    let done = 0;
+    let failed = 0;
+
+    const promises = targets.map(async (vm) => {
+      try {
+        await reprovisionVM(client, vm.name);
+        done++;
+        app.setStatusMessage(`Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ''}...`);
+        app.render();
+      } catch {
+        failed++;
+      }
+    });
+
+    await Promise.all(promises);
+    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    app.setStatusMessage(`${done} VMs re-provisioned${failMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });

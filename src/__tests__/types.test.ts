@@ -163,4 +163,15 @@ describe('types', () => {
     };
     expect(state.mode).toBe('confirm-delete-all');
   });
+
+  it('should support confirm-reprovision-all mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'confirm-reprovision-all',
+      settings: null,
+    };
+    expect(state.mode).toBe('confirm-reprovision-all');
+  });
 });

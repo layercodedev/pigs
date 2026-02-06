@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { provisionVM, loadSettings } from '../provisioner.js';
+import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.js';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -188,5 +188,82 @@ describe('provisionVM', () => {
     expect(b64Match).not.toBeNull();
     const decoded = Buffer.from(b64Match![1], 'base64').toString();
     expect(decoded).toBe('# Custom from app state');
+  });
+});
+
+describe('reprovisionVM', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should only run two exec calls (CLAUDE.md + hooks, no install)', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Updated' }));
+
+    await reprovisionVM(client, 'pigs-reprov');
+
+    expect(client.sprite).toHaveBeenCalledWith('pigs-reprov');
+    // Only two execs: CLAUDE.md and hooks (no install step)
+    expect(mockSprite.exec).toHaveBeenCalledTimes(2);
+  });
+
+  it('should reload settings from disk', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Fresh from disk' }));
+
+    await reprovisionVM(client, 'pigs-reprov');
+
+    expect(mockedReadFile).toHaveBeenCalled();
+
+    // Verify CLAUDE.md content matches reloaded settings
+    const firstCall = mockSprite.exec.mock.calls[0][0] as string;
+    const b64Match = firstCall.match(/echo '([^']+)'/);
+    expect(b64Match).not.toBeNull();
+    const decoded = Buffer.from(b64Match![1], 'base64').toString();
+    expect(decoded).toBe('# Fresh from disk');
+  });
+
+  it('should write updated hooks config', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    await reprovisionVM(client, 'pigs-reprov');
+
+    const secondCall = mockSprite.exec.mock.calls[1][0] as string;
+    expect(secondCall).toContain('base64');
+    expect(secondCall).toContain('.claude/settings.json');
+  });
+
+  it('should call onLog callback with progress messages', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    const logs: string[] = [];
+    await reprovisionVM(client, 'pigs-reprov', (msg) => logs.push(msg));
+
+    expect(logs.length).toBeGreaterThanOrEqual(2);
+    expect(logs.some((m) => m.includes('CLAUDE.md'))).toBe(true);
+    expect(logs.some((m) => m.includes('hook'))).toBe(true);
+  });
+
+  it('should propagate exec errors', async () => {
+    const mockSprite = createMockSprite();
+    mockSprite.exec.mockRejectedValueOnce(new Error('exec failed'));
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    await expect(reprovisionVM(client, 'pigs-fail')).rejects.toThrow('exec failed');
+  });
+
+  it('should work without onLog callback', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+
+    await expect(reprovisionVM(client, 'pigs-silent')).resolves.toBeUndefined();
   });
 });
