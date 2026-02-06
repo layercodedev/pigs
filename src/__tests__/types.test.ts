@@ -22,11 +22,13 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'normal',
       settings: null,
+      searchFilter: '',
     };
     expect(state.vms).toHaveLength(0);
     expect(state.activeVmIndex).toBe(-1);
     expect(state.mode).toBe('normal');
     expect(state.settings).toBeNull();
+    expect(state.searchFilter).toBe('');
   });
 
   it('should allow AppState with loaded settings', () => {
@@ -36,6 +38,7 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'normal',
       settings: { claudeMd: '# My instructions' },
+      searchFilter: '',
     };
     expect(state.settings).not.toBeNull();
     expect(state.settings!.claudeMd).toBe('# My instructions');
@@ -116,6 +119,7 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'prompt',
       settings: null,
+      searchFilter: '',
     };
     expect(state.mode).toBe('prompt');
   });
@@ -127,6 +131,7 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'broadcast',
       settings: null,
+      searchFilter: '',
     };
     expect(state.mode).toBe('broadcast');
   });
@@ -138,6 +143,7 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'help',
       settings: null,
+      searchFilter: '',
     };
     expect(state.mode).toBe('help');
   });
@@ -149,6 +155,7 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'bulk-create',
       settings: null,
+      searchFilter: '',
     };
     expect(state.mode).toBe('bulk-create');
   });
@@ -160,6 +167,7 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'confirm-delete-all',
       settings: null,
+      searchFilter: '',
     };
     expect(state.mode).toBe('confirm-delete-all');
   });
@@ -171,7 +179,21 @@ describe('types', () => {
       sidebarSelectedIndex: 0,
       mode: 'confirm-reprovision-all',
       settings: null,
+      searchFilter: '',
     };
     expect(state.mode).toBe('confirm-reprovision-all');
+  });
+
+  it('should support search mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'search',
+      settings: null,
+      searchFilter: 'myproject',
+    };
+    expect(state.mode).toBe('search');
+    expect(state.searchFilter).toBe('myproject');
   });
 });

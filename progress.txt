@@ -90,3 +90,15 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for confirm-reprovision-all mode.
 
 All 140 tests pass. Type checks clean.
+
+## VM Search/Filter Feature
+
+Added search/filter for the VM sidebar (press `/`) to quickly find VMs by name, label, status, or provisioning status. Essential for managing large fleets — type a search term and only matching VMs are shown. Press `Escape` in normal mode to clear the filter. Navigation with `j`/`k` respects the filtered list so you only move between visible VMs.
+
+Changes:
+- `src/types.ts`: Added `'search'` to AppState mode union, added `searchFilter` field to AppState
+- `src/tui.ts`: Added `filterVMs()` pure function for case-insensitive matching against name, displayLabel, status, and provisioningStatus. Added search dialog (cyan border, anchored to bottom-left above status bar), `/` keybinding, `Escape` to clear filter in normal mode. Updated `renderSidebar()` to filter displayed VMs and show filter indicator in sidebar label. Updated `j`/`k` navigation to only move between filtered VMs. Updated help screen with new keybindings (increased height to 27). Updated status bar to include `/:search`.
+- `src/__tests__/filter-vms.test.ts`: 11 tests covering empty filter, empty list, name matching, displayLabel matching, case insensitivity, status matching, provisioningStatus matching, partial strings, no matches, name fallback, and branch matching.
+- `src/__tests__/types.test.ts`: Added `searchFilter` to all AppState tests, added test for search mode.
+
+All 152 tests pass. Type checks clean.

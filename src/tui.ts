@@ -37,6 +37,21 @@ export function buildVmSummary(vms: VM[]): string {
   return parts.join(', ');
 }
 
+/**
+ * Filter VMs by a search term. Matches against displayLabel, name, status,
+ * and provisioningStatus (case-insensitive).
+ */
+export function filterVMs(vms: VM[], filter: string): VM[] {
+  if (!filter) return vms;
+  const term = filter.toLowerCase();
+  return vms.filter(vm => {
+    const label = (vm.displayLabel ?? vm.name).toLowerCase();
+    const status = vm.status.toLowerCase();
+    const provStatus = (vm.provisioningStatus ?? '').toLowerCase();
+    return label.includes(term) || status.includes(term) || provStatus.includes(term) || vm.name.toLowerCase().includes(term);
+  });
+}
+
 export function createApp() {
   const screen = blessed.screen({
     smartCSR: true,
@@ -50,6 +65,7 @@ export function createApp() {
     sidebarSelectedIndex: 0,
     mode: 'normal',
     settings: null,
+    searchFilter: '',
   };
 
   // Sidebar: list of VMs on the left
@@ -121,7 +137,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -299,7 +315,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 25,
+    height: 27,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -332,6 +348,8 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
+      '  /             Search/filter VMs in sidebar',
+      '  Escape        Clear search filter (in normal mode)',
       '  ?             Toggle this help screen',
       '  q             Quit',
       '  Ctrl-C        Force quit',
@@ -340,8 +358,42 @@ export function createApp() {
     ].join('\n'),
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  ?:help  q:quit';
+  // Search dialog (hidden by default)
+  const searchDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    bottom: 1,
+    left: 0,
+    width: 30,
+    height: 3,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'cyan' },
+      bg: 'black',
+    },
+    label: ' Search VMs ',
+    tags: true,
+  });
+
+  const searchInput = blessed.textbox({
+    parent: searchDialog,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    inputOnFocus: true,
+    style: {
+      fg: 'white',
+      bg: 'black',
+    },
+  });
+
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  p:prompt  b:broadcast  a:next-attn  m:mount  u:unmount  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
+
+  function getFilteredVMs(): VM[] {
+    return filterVMs(state.vms, state.searchFilter);
+  }
 
   function renderSidebar() {
     sidebar.children.forEach((child) => {
@@ -350,24 +402,28 @@ export function createApp() {
 
     // Update sidebar label with VM status summary
     const summary = buildVmSummary(state.vms);
+    const filterLabel = state.searchFilter ? ` filter:"${state.searchFilter}"` : '';
     if (summary) {
-      sidebar.setLabel(` VMs (${summary}) `);
+      sidebar.setLabel(` VMs (${summary})${filterLabel} `);
     } else {
-      sidebar.setLabel(' VMs ');
+      sidebar.setLabel(` VMs${filterLabel} `);
     }
 
-    if (state.vms.length === 0) {
+    const displayed = getFilteredVMs();
+
+    if (displayed.length === 0) {
       blessed.text({
         parent: sidebar,
-        content: 'No VMs running',
+        content: state.searchFilter ? `No VMs matching "${state.searchFilter}"` : 'No VMs running',
         top: 1,
         left: 1,
         style: { fg: 'gray' },
       });
     } else {
-      state.vms.forEach((vm, i) => {
-        const isActive = i === state.activeVmIndex;
-        const isSelected = i === state.sidebarSelectedIndex;
+      displayed.forEach((vm, i) => {
+        const realIndex = state.vms.indexOf(vm);
+        const isActive = realIndex === state.activeVmIndex;
+        const isSelected = realIndex === state.sidebarSelectedIndex;
         const attention = vm.needsAttention ? ' {red-fg}{bold}!{/bold}{/red-fg}' : '';
         const statusIcon = vm.status === 'running' ? '*' : '-';
         const prefix = isActive ? '>' : ' ';
@@ -525,8 +581,8 @@ export function createApp() {
       hideHelp();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create') {
-      // In console/prompt/broadcast/bulk-create mode, q goes to the input
+    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search') {
+      // In console/prompt/broadcast/bulk-create/search mode, q goes to the input
       return;
     }
     gracefulQuit();
@@ -551,22 +607,28 @@ export function createApp() {
 
   screen.key(['j', 'down'], () => {
     if (state.mode !== 'normal') return;
-    if (state.vms.length > 0) {
-      state.sidebarSelectedIndex = Math.min(
-        state.sidebarSelectedIndex + 1,
-        state.vms.length - 1
-      );
+    const displayed = getFilteredVMs();
+    if (displayed.length > 0) {
+      // Find current position in filtered list
+      const currentVM = state.vms[state.sidebarSelectedIndex];
+      const filteredIdx = displayed.indexOf(currentVM);
+      const nextFilteredIdx = Math.min(filteredIdx + 1, displayed.length - 1);
+      const nextVM = displayed[nextFilteredIdx];
+      state.sidebarSelectedIndex = state.vms.indexOf(nextVM);
       render();
     }
   });
 
   screen.key(['k', 'up'], () => {
     if (state.mode !== 'normal') return;
-    if (state.vms.length > 0) {
-      state.sidebarSelectedIndex = Math.max(
-        state.sidebarSelectedIndex - 1,
-        0
-      );
+    const displayed = getFilteredVMs();
+    if (displayed.length > 0) {
+      // Find current position in filtered list
+      const currentVM = state.vms[state.sidebarSelectedIndex];
+      const filteredIdx = displayed.indexOf(currentVM);
+      const prevFilteredIdx = Math.max(filteredIdx - 1, 0);
+      const prevVM = displayed[prevFilteredIdx];
+      state.sidebarSelectedIndex = state.vms.indexOf(prevVM);
       render();
     }
   });
@@ -685,9 +747,17 @@ export function createApp() {
     showHelp();
   });
 
+  screen.key(['/'], () => {
+    if (state.mode !== 'normal') return;
+    showSearch();
+  });
+
   screen.key(['escape'], () => {
     if (state.mode === 'help') {
       hideHelp();
+    }
+    if (state.mode === 'normal' && state.searchFilter) {
+      clearSearch();
     }
   });
 
@@ -801,6 +871,48 @@ export function createApp() {
     statusBar.setContent(normalStatusText);
     screen.render();
   }
+
+  function showSearch() {
+    state.mode = 'search';
+    searchDialog.show();
+    searchInput.setValue(state.searchFilter);
+    searchInput.focus();
+    searchInput.readInput();
+    screen.render();
+  }
+
+  function hideSearch() {
+    state.mode = 'normal';
+    searchDialog.hide();
+    searchInput.cancel();
+    // Ensure selection is valid within filtered results
+    const displayed = getFilteredVMs();
+    if (displayed.length > 0) {
+      const currentVM = state.vms[state.sidebarSelectedIndex];
+      if (!displayed.includes(currentVM)) {
+        state.sidebarSelectedIndex = state.vms.indexOf(displayed[0]);
+      }
+    }
+    screen.render();
+  }
+
+  function clearSearch() {
+    state.searchFilter = '';
+    render();
+  }
+
+  // Search input submission
+  searchInput.on('submit', (value: string) => {
+    state.searchFilter = value?.trim() ?? '';
+    hideSearch();
+    render();
+  });
+
+  // Search input cancel
+  searchInput.on('cancel', () => {
+    hideSearch();
+    render();
+  });
 
   // Bulk create input submission
   bulkCreateInput.on('submit', (value: string) => {
