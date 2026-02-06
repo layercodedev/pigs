@@ -10,5 +10,5 @@ export interface AppState {
   vms: VM[];
   activeVmIndex: number;
   sidebarSelectedIndex: number;
-  mode: 'normal' | 'confirm-delete' | 'creating';
+  mode: 'normal' | 'confirm-delete' | 'creating' | 'console';
 }

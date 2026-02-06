@@ -28,3 +28,45 @@ Completed:
 - Updated src/index.ts create handler to use auto-generated names instead of timestamp-based names
 - Expanded tests from 3 to 16: covers createSpritesClient, generateVMName, spriteToVM (all field mappings + fallbacks), listVMs (with mock client), createVM (generated + explicit names), deleteVM
 - All 16 tests pass, typecheck clean
+
+## 2026-02-06 - Iteration 3: SSH Console Session
+
+Task: Attach to active VM console via sprites exec TTY, pipe stdin/stdout, detach on switch
+
+Completed:
+- Created src/console-session.ts module managing TTY sessions via Sprites SDK
+  - `attachConsole()` spawns bash with TTY mode on a Sprite VM via `sprite.spawn('bash', [], { tty, cols, rows })`, starts the WebSocket connection, and caches the session
+  - `detachConsole()` removes stdout/stderr listeners without killing the remote process (session persists)
+  - `destroyConsole()` kills the remote command and removes the session
+  - `writeToConsole()` pipes data to the remote stdin
+  - `resizeConsole()` sends terminal resize to the remote TTY
+  - `detachAll()` gracefully detaches all sessions (used on quit)
+  - `getSession()` / `getActiveSessionNames()` for session introspection
+- Updated src/types.ts: added 'console' mode to AppState.mode union
+- Updated src/tui.ts:
+  - Added terminal output box inside main view for displaying console session output
+  - Added console mode: raw key input forwarded to VM via `screen.program.on('data')`, Escape detaches
+  - Console mode shows yellow border and "(attached)" label, status bar shows "Escape:detach"
+  - In console mode, q/Ctrl-C are forwarded to the VM (not intercepted by TUI)
+  - Added `getTerminalSize()`, `writeToTerminal()`, `clearTerminal()`, `enterConsoleMode()` methods
+  - `resetStatus()` is mode-aware (shows console or normal hints)
+  - Screen resize events forwarded to console-resize handler
+  - Added 'quit' handler hook for graceful exit
+- Updated src/index.ts:
+  - Activate handler now creates/reattaches TTY session, connects stdout/stderr to terminal, enters console mode
+  - Detaches from previous session's listeners when switching VMs
+  - Console-input handler forwards raw keystrokes to VM stdin
+  - Console-detach handler (on Escape) detaches session listeners
+  - Console-resize handler propagates terminal size changes
+  - Delete handler destroys console session before deleting VM
+  - Quit handler calls detachAll() for graceful exit
+- Created src/__tests__/console-session.test.ts with 16 tests covering:
+  - attachConsole: TTY spawn + start, session reuse, multi-VM sessions
+  - detachConsole: listener removal, safe no-op for missing sessions
+  - destroyConsole: kill + cleanup, graceful error handling
+  - getSession: lookup behavior
+  - resizeConsole: resize forwarding, safe no-op
+  - writeToConsole: stdin write, return value for missing sessions
+  - detachAll: multi-session detach
+  - getActiveSessionNames: tracking
+- All 32 tests pass, typecheck clean, build succeeds

@@ -2,6 +2,15 @@
 
 import { createApp } from './tui.js';
 import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.js';
+import {
+  attachConsole,
+  detachConsole,
+  destroyConsole,
+  resizeConsole,
+  writeToConsole,
+  detachAll,
+  getSession,
+} from './console-session.js';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
@@ -31,6 +40,82 @@ async function main() {
   app.render();
   app.resetStatus();
 
+  /**
+   * Connect stdout/stderr from a console session to the terminal display.
+   */
+  function connectSessionOutput(vmName: string) {
+    const session = getSession(vmName);
+    if (!session) return;
+
+    session.command.stdout.on('data', (chunk: Buffer) => {
+      app.writeToTerminal(chunk.toString());
+    });
+
+    session.command.stderr.on('data', (chunk: Buffer) => {
+      app.writeToTerminal(chunk.toString());
+    });
+
+    session.command.on('exit', () => {
+      if (state.mode === 'console') {
+        state.mode = 'normal';
+        app.setStatusMessage(`Console session ended for ${vmName}`);
+        app.render();
+        setTimeout(() => app.resetStatus(), 3000);
+      }
+    });
+  }
+
+  // Activate VM handler - attach console session
+  app.onKey('activate', async () => {
+    const vm = state.vms[state.activeVmIndex];
+    if (!vm) return;
+
+    // Detach from any previously active session's output listeners
+    for (const v of state.vms) {
+      if (v.name !== vm.name && getSession(v.name)) {
+        detachConsole(v.name);
+      }
+    }
+
+    app.setStatusMessage(`Connecting to ${vm.name}...`);
+    try {
+      const { cols, rows } = app.getTerminalSize();
+      await attachConsole(client, vm.name, cols, rows);
+      app.clearTerminal();
+      connectSessionOutput(vm.name);
+      app.enterConsoleMode();
+    } catch (err: any) {
+      app.setStatusMessage(`Error connecting: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
+  });
+
+  // Console input handler - forward keystrokes to VM stdin
+  app.onKey('console-input', (data: string) => {
+    const vm = state.vms[state.activeVmIndex];
+    if (vm) {
+      writeToConsole(vm.name, data);
+    }
+  });
+
+  // Console detach handler
+  app.onKey('console-detach', () => {
+    const vm = state.vms[state.activeVmIndex];
+    if (vm) {
+      detachConsole(vm.name);
+      app.setStatusMessage(`Detached from ${vm.name}`);
+      setTimeout(() => app.resetStatus(), 2000);
+    }
+  });
+
+  // Console resize handler
+  app.onKey('console-resize', (cols: number, rows: number) => {
+    const vm = state.vms[state.activeVmIndex];
+    if (vm) {
+      resizeConsole(vm.name, cols, rows);
+    }
+  });
+
   // Create VM handler
   app.onKey('create', async () => {
     state.mode = 'creating';
@@ -55,6 +140,7 @@ async function main() {
     if (!vm) return;
     app.setStatusMessage(`Deleting VM: ${vm.name}...`);
     try {
+      destroyConsole(vm.name);
       await deleteVM(client, vm.name);
       state.vms.splice(state.sidebarSelectedIndex, 1);
       if (state.sidebarSelectedIndex >= state.vms.length) {
@@ -71,13 +157,9 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Activate VM handler (switch active console)
-  app.onKey('activate', () => {
-    const vm = state.vms[state.activeVmIndex];
-    if (vm) {
-      app.setStatusMessage(`Switched to VM: ${vm.name}`);
-      setTimeout(() => app.resetStatus(), 2000);
-    }
+  // Quit handler - detach all sessions gracefully
+  app.onKey('quit', () => {
+    detachAll();
   });
 }
 
