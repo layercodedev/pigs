@@ -102,3 +102,15 @@ Changes:
 - `src/__tests__/types.test.ts`: Added `searchFilter` to all AppState tests, added test for search mode.
 
 All 152 tests pass. Type checks clean.
+
+## Per-VM Console Output Buffering
+
+Added per-VM output buffering so console output is preserved when switching between VMs. Previously, switching to a different VM cleared the terminal and all output was lost — a critical problem when orchestrating multiple parallel agents. Now each VM maintains its own output buffer (up to 5000 lines), and switching back to a VM restores its full console history. Background VMs continue capturing output even when not displayed.
+
+Changes:
+- `src/output-buffer.ts`: New module — per-VM output ring buffer with append, get, clear operations. Splits on newlines, handles \r\n, trims to 5000 lines max per VM.
+- `src/tui.ts`: Added `restoreTerminal()` function that sets terminal content from buffered lines and scrolls to bottom. Exported from `createApp()`.
+- `src/index.ts`: Integrated output buffer — `connectSessionOutput` now buffers all output per-VM and is idempotent (won't add duplicate listeners). Activate handler restores buffered output instead of clearing. Prompt-submit clears buffer for fresh output. Delete handlers clean up buffers. No longer detaches from other VMs so background output keeps flowing.
+- `src/__tests__/output-buffer.test.ts`: 10 tests covering append, trailing newlines, \r\n handling, per-VM isolation, MAX_LINES trimming, unknown VM default, clear single, clear non-existent, and clear all.
+
+All 162 tests pass. Type checks clean.

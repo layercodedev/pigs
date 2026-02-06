@@ -15,6 +15,7 @@ import { loadSettings, provisionVM, reprovisionVM } from './provisioner.js';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
 import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
 import { loadHistory, addToHistory } from './prompt-history.js';
+import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -62,17 +63,32 @@ async function main() {
 
   /**
    * Connect stdout/stderr from a console session to the terminal display.
+   * Idempotent — only adds listeners once per VM.
    */
+  const connectedVMs = new Set<string>();
   function connectSessionOutput(vmName: string) {
+    if (connectedVMs.has(vmName)) return;
+    connectedVMs.add(vmName);
     const session = getSession(vmName);
     if (!session) return;
 
     session.command.stdout.on('data', (chunk: Buffer) => {
-      app.writeToTerminal(chunk.toString());
+      const data = chunk.toString();
+      appendOutput(vmName, data);
+      // Only write to terminal if this VM is the active one
+      const activeVm = state.vms[state.activeVmIndex];
+      if (activeVm && activeVm.name === vmName) {
+        app.writeToTerminal(data);
+      }
     });
 
     session.command.stderr.on('data', (chunk: Buffer) => {
-      app.writeToTerminal(chunk.toString());
+      const data = chunk.toString();
+      appendOutput(vmName, data);
+      const activeVm = state.vms[state.activeVmIndex];
+      if (activeVm && activeVm.name === vmName) {
+        app.writeToTerminal(data);
+      }
     });
 
     session.command.on('exit', () => {
@@ -93,19 +109,18 @@ async function main() {
     // Clear attention indicator when user activates this VM
     clearAttention(vm);
 
-    // Detach from any previously active session's output listeners
-    for (const v of state.vms) {
-      if (v.name !== vm.name && getSession(v.name)) {
-        detachConsole(v.name);
-      }
-    }
-
     app.setStatusMessage(`Connecting to ${vm.name}...`);
     try {
       const { cols, rows } = app.getTerminalSize();
       await attachConsole(client, vm.name, cols, rows);
-      app.clearTerminal();
       connectSessionOutput(vm.name);
+      // Restore buffered output for this VM
+      const buffered = getOutput(vm.name);
+      if (buffered.length > 0) {
+        app.restoreTerminal(buffered);
+      } else {
+        app.clearTerminal();
+      }
       app.enterConsoleMode();
     } catch (err: any) {
       app.setStatusMessage(`Error connecting: ${err.message}`);
@@ -248,6 +263,7 @@ async function main() {
         await unmountVM(vm.name);
       }
       destroyConsole(vm.name);
+      clearOutput(vm.name);
       await deleteVM(client, vm.name);
       state.vms.splice(state.sidebarSelectedIndex, 1);
       if (state.sidebarSelectedIndex >= state.vms.length) {
@@ -282,6 +298,7 @@ async function main() {
           vm.mountPath = undefined;
         }
         destroyConsole(vm.name);
+        clearOutput(vm.name);
         await deleteVM(client, vm.name);
         deletedNames.add(vm.name);
         app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
@@ -408,18 +425,13 @@ async function main() {
       return;
     }
 
-    // Detach from any previously active session's output listeners
-    for (const v of state.vms) {
-      if (v.name !== vm.name && getSession(v.name)) {
-        detachConsole(v.name);
-      }
-    }
-
     app.setStatusMessage(`Sending prompt to ${vm.displayLabel ?? vm.name}...`);
     try {
       const { cols, rows } = app.getTerminalSize();
       await attachConsole(client, vm.name, cols, rows);
       state.activeVmIndex = state.sidebarSelectedIndex;
+      // Clear buffer for fresh prompt output
+      clearOutput(vm.name);
       app.clearTerminal();
       connectSessionOutput(vm.name);
 

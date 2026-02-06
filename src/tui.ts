@@ -795,6 +795,15 @@ export function createApp() {
   }
 
   /**
+   * Restore terminal display from an array of buffered output lines.
+   */
+  function restoreTerminal(lines: string[]) {
+    terminal.setContent(lines.join('\n'));
+    terminal.setScrollPerc(100);
+    screen.render();
+  }
+
+  /**
    * Enter console mode for the active VM.
    */
   function enterConsoleMode() {
@@ -1004,6 +1013,7 @@ export function createApp() {
     getTerminalSize,
     writeToTerminal,
     clearTerminal,
+    restoreTerminal,
     enterConsoleMode,
     setStatusMessage(msg: string) {
       statusBar.setContent(` ${msg}`);
