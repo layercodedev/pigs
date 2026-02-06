@@ -90,6 +90,8 @@ async function main() {
         if (activeVm && activeVm.name === vmName) {
           app.writeToTerminal(data);
         }
+      } else if (state.mode === 'dashboard') {
+        app.renderDashboard();
       } else {
         // In normal mode, update preview if this is the selected VM
         const selectedVm = state.vms[state.sidebarSelectedIndex];
@@ -107,6 +109,8 @@ async function main() {
         if (activeVm && activeVm.name === vmName) {
           app.writeToTerminal(data);
         }
+      } else if (state.mode === 'dashboard') {
+        app.renderDashboard();
       } else {
         const selectedVm = state.vms[state.sidebarSelectedIndex];
         if (selectedVm && selectedVm.name === vmName) {

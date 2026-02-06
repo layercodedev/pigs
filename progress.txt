@@ -197,3 +197,16 @@ Changes:
 - `src/index.ts`: Added `selection-changed` handler that reads selected VM's output buffer and calls `showPreview()`. Updated `connectSessionOutput()` to stream live output to preview when in normal mode (selected VM) vs terminal when in console mode (active VM). Added initial preview display after VM load. Added `connectSessionOutput()` + `clearOutput()` calls in broadcast handler so broadcast VMs buffer output for preview.
 
 All 202 tests pass. Type checks clean.
+
+## Fleet Dashboard Overview Feature
+
+Added fleet dashboard (press `i`) that shows a full-screen overview of ALL VMs in a compact grid layout. Essential for monitoring a fleet of parallel agents at a glance — instead of scrolling through the sidebar and previewing one VM at a time, press `i` to see every agent's status, last output line, elapsed time, and attention indicators all at once. The dashboard uses a responsive 2-column grid (1-column on narrow terminals), updates live as agents produce output and timers tick, and respects the current search filter and sort mode. Press `i`, `Escape`, or `q` to close.
+
+Changes:
+- `src/types.ts`: Added `'dashboard'` to AppState mode union
+- `src/tui.ts`: Added `buildDashboardCell()` pure function for formatting individual VM cells (label, status line, last output). Added dashboard overlay (magenta border, full-screen, scrollable). Added `showDashboard()`/`hideDashboard()`/`renderDashboard()` functions with responsive 2-column grid layout. Added `i` keybinding to toggle dashboard. Updated `q`/`Escape` handlers to close dashboard. Updated elapsed timer to refresh dashboard when active. Updated help screen with new keybinding (increased dialog height to 37). Updated status bar to include `i:dashboard`. Exposed `renderDashboard()` method for live output updates.
+- `src/index.ts`: Updated `connectSessionOutput()` to refresh dashboard when in dashboard mode and new output arrives from any VM.
+- `src/__tests__/dashboard.test.ts`: 14 tests covering basic cell rendering, running/stopped status icons, attention indicators, provisioning states (setup/fail/wait), mount indicator, last output line display, empty output fallback, label truncation, output truncation, name fallback, and elapsed time display.
+- `src/__tests__/types.test.ts`: Added test for dashboard mode.
+
+All 217 tests pass. Type checks clean.

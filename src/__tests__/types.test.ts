@@ -269,6 +269,19 @@ describe('types', () => {
     expect(state.searchFilter).toBe('myproject');
   });
 
+  it('should support dashboard mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'dashboard',
+      settings: null,
+      searchFilter: '',
+      sortMode: 'default',
+    };
+    expect(state.mode).toBe('dashboard');
+  });
+
   it('should support sortMode on AppState', () => {
     const modes: SortMode[] = ['default', 'name', 'status', 'attention', 'elapsed'];
     for (const sortMode of modes) {

@@ -1,6 +1,7 @@
 import blessed from 'blessed';
 import type { AppState, SortMode, VM } from './types.js';
 import { historyUp, historyDown, resetCursor } from './prompt-history.js';
+import { getOutput } from './output-buffer.js';
 
 /**
  * Find the index of the next VM that needs attention, starting after currentIndex.
@@ -122,6 +123,34 @@ export function formatElapsed(startTime: number | undefined, now: number): strin
   return `${hours}h${mins.toString().padStart(2, '0')}m`;
 }
 
+/**
+ * Build a compact text cell for a single VM in the dashboard grid.
+ * Returns an array of lines for display. Width is the max char width.
+ */
+export function buildDashboardCell(vm: VM, lastLine: string, width: number): string[] {
+  const label = vm.displayLabel ?? vm.name;
+  const truncLabel = label.length > width - 2 ? label.slice(0, width - 5) + '...' : label;
+
+  // Status line: icon + status + provisioning + attention + elapsed
+  const statusIcon = vm.status === 'running' ? '{green-fg}*{/green-fg}' : '{gray-fg}-{/gray-fg}';
+  const attention = vm.needsAttention ? ' {red-fg}{bold}!{/bold}{/red-fg}' : '';
+  const provLabel = vm.provisioningStatus === 'provisioning' ? ' {yellow-fg}[setup]{/yellow-fg}'
+    : vm.provisioningStatus === 'failed' ? ' {red-fg}[fail]{/red-fg}'
+    : vm.provisioningStatus === 'pending' ? ' {gray-fg}[wait]{/gray-fg}'
+    : '';
+  const mount = vm.mountPath ? ' {cyan-fg}[mnt]{/cyan-fg}' : '';
+  const elapsed = vm.taskStartedAt ? ` {cyan-fg}${formatElapsed(vm.taskStartedAt, Date.now())}{/cyan-fg}` : '';
+
+  const statusLine = `${statusIcon} ${vm.status}${provLabel}${mount}${elapsed}${attention}`;
+
+  // Last output line - truncate to fit width
+  const cleanLast = lastLine.replace(/\{[^}]*\}/g, '').trim();
+  const truncLast = cleanLast.length > width - 2 ? cleanLast.slice(0, width - 5) + '...' : cleanLast;
+  const outputLine = truncLast || '{gray-fg}(no output){/gray-fg}';
+
+  return [truncLabel, statusLine, outputLine];
+}
+
 export function createApp() {
   const screen = blessed.screen({
     smartCSR: true,
@@ -208,7 +237,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -386,7 +415,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 36,
+    height: 37,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -423,6 +452,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
+      '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
       '  /             Search/filter VMs in sidebar',
       '  Escape        Clear search filter (in normal mode)',
@@ -436,6 +466,31 @@ export function createApp() {
       '',
       '  {gray-fg}Press ? or Escape to close{/gray-fg}',
     ].join('\n'),
+  });
+
+  // Dashboard overlay (hidden by default)
+  const dashboardOverlay = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%-1',
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'magenta' },
+      bg: 'black',
+      label: { fg: 'white', bold: true },
+    },
+    label: ' Dashboard — All Agents ',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+      style: { bg: 'gray' },
+    },
+    mouse: true,
+    keys: true,
   });
 
   // Rename dialog (hidden by default)
@@ -506,7 +561,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -699,6 +754,10 @@ export function createApp() {
     }
     if (state.mode === 'help') {
       hideHelp();
+      return;
+    }
+    if (state.mode === 'dashboard') {
+      hideDashboard();
       return;
     }
     if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename') {
@@ -898,6 +957,15 @@ export function createApp() {
     render();
   });
 
+  screen.key(['i'], () => {
+    if (state.mode === 'dashboard') {
+      hideDashboard();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    showDashboard();
+  });
+
   screen.key(['?'], () => {
     if (state.mode === 'console') return;
     if (state.mode === 'help') {
@@ -916,6 +984,9 @@ export function createApp() {
   screen.key(['escape'], () => {
     if (state.mode === 'help') {
       hideHelp();
+    }
+    if (state.mode === 'dashboard') {
+      hideDashboard();
     }
     if (state.mode === 'normal' && state.searchFilter) {
       clearSearch();
@@ -1088,6 +1159,66 @@ export function createApp() {
     render();
   }
 
+  function showDashboard() {
+    state.mode = 'dashboard';
+    renderDashboard();
+    dashboardOverlay.show();
+    dashboardOverlay.focus();
+    statusBar.setContent(' i:close dashboard  j/k:scroll  ?:help  q:quit');
+    screen.render();
+  }
+
+  function hideDashboard() {
+    state.mode = 'normal';
+    dashboardOverlay.hide();
+    statusBar.setContent(normalStatusText);
+    render();
+  }
+
+  function renderDashboard() {
+    const displayed = getFilteredVMs();
+    const availWidth = (screen.width as number) - 4; // borders + padding
+    // Calculate grid: 2 columns if wide enough, else 1
+    const cols = availWidth >= 80 ? 2 : 1;
+    const cellWidth = Math.floor(availWidth / cols) - 2;
+
+    if (displayed.length === 0) {
+      dashboardOverlay.setContent('\n  {gray-fg}No VMs to display{/gray-fg}');
+      return;
+    }
+
+    const lines: string[] = [''];
+    for (let i = 0; i < displayed.length; i += cols) {
+      const rowCells: string[][] = [];
+      for (let c = 0; c < cols && i + c < displayed.length; c++) {
+        const vm = displayed[i + c];
+        const outputLines = getOutput(vm.name);
+        const lastLine = outputLines.length > 0 ? outputLines[outputLines.length - 1] : '';
+        rowCells.push(buildDashboardCell(vm, lastLine, cellWidth));
+      }
+
+      // Render cells side by side (3 lines per cell + 1 separator)
+      const maxLines = 3;
+      for (let line = 0; line < maxLines; line++) {
+        const parts: string[] = [];
+        for (let c = 0; c < rowCells.length; c++) {
+          const cellLine = rowCells[c][line] ?? '';
+          parts.push(`  ${cellLine}`);
+        }
+        lines.push(parts.join('  │  '));
+      }
+      lines.push('  ' + '─'.repeat(Math.min(availWidth - 2, cellWidth * cols + (cols - 1) * 5)));
+    }
+
+    // Summary footer
+    const summary = buildVmSummary(displayed);
+    if (summary) {
+      lines.push(`  Fleet: ${summary}`);
+    }
+
+    dashboardOverlay.setContent(lines.join('\n'));
+  }
+
   // Search input submission
   searchInput.on('submit', (value: string) => {
     state.searchFilter = value?.trim() ?? '';
@@ -1195,10 +1326,15 @@ export function createApp() {
     hideBroadcastInput();
   });
 
-  // Refresh sidebar every second so elapsed timers update live
+  // Refresh sidebar/dashboard every second so elapsed timers update live
   const elapsedTimer = setInterval(() => {
     if (state.vms.some(vm => vm.taskStartedAt != null)) {
-      renderSidebar();
+      if (state.mode === 'dashboard') {
+        renderDashboard();
+        screen.render();
+      } else {
+        renderSidebar();
+      }
     }
   }, 1000);
 
@@ -1237,6 +1373,12 @@ export function createApp() {
     setStatusMessage(msg: string) {
       statusBar.setContent(` ${msg}`);
       screen.render();
+    },
+    renderDashboard() {
+      if (state.mode === 'dashboard') {
+        renderDashboard();
+        screen.render();
+      }
     },
     resetStatus() {
       if (state.mode === 'console') {
