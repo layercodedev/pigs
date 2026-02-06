@@ -1,5 +1,6 @@
 import blessed from 'blessed';
 import type { AppState, VM } from './types.js';
+import { historyUp, historyDown, resetCursor } from './prompt-history.js';
 
 export function createApp() {
   const screen = blessed.screen({
@@ -189,7 +190,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 20,
+    height: 21,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -214,6 +215,7 @@ export function createApp() {
       '  {bold}Prompts{/bold}',
       '  p             Send prompt to selected VM',
       '  b             Broadcast prompt to all VMs',
+      '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
       '  ?             Toggle this help screen',
@@ -518,6 +520,7 @@ export function createApp() {
 
   function showPromptInput(vm: VM) {
     state.mode = 'prompt';
+    resetCursor();
     promptDialog.setLabel(` Send Prompt to ${vm.displayLabel ?? vm.name} `);
     promptDialog.show();
     promptInput.setValue('');
@@ -550,6 +553,7 @@ export function createApp() {
   function showBroadcastInput() {
     const provisionedCount = state.vms.filter(vm => vm.provisioningStatus === 'done').length;
     state.mode = 'broadcast';
+    resetCursor();
     broadcastDialog.setLabel(` Broadcast Prompt to All Agents (${provisionedCount} ready) `);
     broadcastDialog.show();
     broadcastInput.setValue('');
@@ -565,6 +569,40 @@ export function createApp() {
     statusBar.setContent(normalStatusText);
     screen.render();
   }
+
+  // History navigation for prompt input
+  promptInput.on('keypress', (_ch: string, key: { name: string }) => {
+    if (key.name === 'up') {
+      const entry = historyUp(promptInput.getValue());
+      if (entry !== null) {
+        promptInput.setValue(entry);
+        screen.render();
+      }
+    } else if (key.name === 'down') {
+      const entry = historyDown();
+      if (entry !== null) {
+        promptInput.setValue(entry);
+        screen.render();
+      }
+    }
+  });
+
+  // History navigation for broadcast input
+  broadcastInput.on('keypress', (_ch: string, key: { name: string }) => {
+    if (key.name === 'up') {
+      const entry = historyUp(broadcastInput.getValue());
+      if (entry !== null) {
+        broadcastInput.setValue(entry);
+        screen.render();
+      }
+    } else if (key.name === 'down') {
+      const entry = historyDown();
+      if (entry !== null) {
+        broadcastInput.setValue(entry);
+        screen.render();
+      }
+    }
+  });
 
   // Prompt input submission
   promptInput.on('submit', (value: string) => {

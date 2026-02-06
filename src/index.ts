@@ -14,6 +14,7 @@ import {
 import { loadSettings, provisionVM } from './provisioner.js';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
 import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
+import { loadHistory, addToHistory } from './prompt-history.js';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -35,6 +36,9 @@ async function main() {
   } catch (err: any) {
     app.setStatusMessage(`Warning: Could not load settings: ${err.message}`);
   }
+
+  // Load prompt history
+  await loadHistory();
 
   // Load existing VMs
   app.setStatusMessage('Loading VMs...');
@@ -235,6 +239,8 @@ async function main() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
+    await addToHistory(prompt);
+
     if (vm.provisioningStatus !== 'done') {
       app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
       setTimeout(() => app.resetStatus(), 3000);
@@ -269,6 +275,8 @@ async function main() {
 
   // Broadcast prompt handler - send claude -p to all provisioned VMs
   app.onKey('broadcast-submit', async (prompt: string) => {
+    await addToHistory(prompt);
+
     const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
     if (targets.length === 0) {
       app.setStatusMessage('No provisioned VMs to broadcast to');

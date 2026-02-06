@@ -20,3 +20,15 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for help mode
 
 All 95 tests pass. Type checks clean.
+
+## Prompt History Feature
+
+Added prompt history with up/down arrow navigation in prompt and broadcast dialogs. Prompts are persisted to `~/.pigs/history.json` and recalled with arrow keys — essential for iterating on prompts across multiple agent sessions.
+
+Changes:
+- `src/prompt-history.ts`: New module — manages prompt history with add, navigate up/down, cursor reset, deduplication, and file persistence (max 100 entries)
+- `src/tui.ts`: Added `keypress` handlers on prompt and broadcast textboxes for up/down arrow history navigation, reset cursor on dialog open, added history hint to help screen
+- `src/index.ts`: Load history on startup, save prompts on submit (both single and broadcast)
+- `src/__tests__/prompt-history.test.ts`: 18 tests covering load, save, add, deduplicate, navigate up/down, draft preservation, cursor reset
+
+All 113 tests pass. Type checks clean.
