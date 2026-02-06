@@ -44,3 +44,15 @@ Changes:
 - `src/__tests__/types.test.ts`: Added test for bulk-create mode
 
 All 114 tests pass. Type checks clean.
+
+## Bulk VM Deletion Feature
+
+Added bulk delete (press `D` / Shift-D) to delete all VMs at once with confirmation. Essential complement to bulk create — tear down an entire fleet of agents in one action instead of deleting one by one. Deletes happen in parallel with live progress, unmounts filesystems and destroys console sessions before deletion.
+
+Changes:
+- `src/types.ts`: Added `'confirm-delete-all'` to AppState mode union
+- `src/tui.ts`: Added confirm-delete-all dialog (red border, 50x7), `S-d` keybinding, y/n confirmation handlers, updated q/Ctrl-C to dismiss dialog. Updated help screen with `D (shift) Delete ALL VMs at once`. Updated status bar to include `D:delete-all`.
+- `src/index.ts`: Added `delete-all` handler that unmounts, destroys consoles, and deletes all VMs in parallel via `Promise.all` with progress tracking (`Deleted X/N...`). Tracks success/failure per VM using a Set.
+- `src/__tests__/types.test.ts`: Added test for confirm-delete-all mode
+
+All 115 tests pass. Type checks clean.

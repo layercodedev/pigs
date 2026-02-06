@@ -86,7 +86,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  Enter:activate  q:quit',
+    content: ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  ?:help  q:quit',
   });
 
   // Confirm dialog (hidden by default)
@@ -221,6 +221,24 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
+  // Confirm delete all dialog (hidden by default)
+  const confirmDeleteAllDialog = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 50,
+    height: 7,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'red' },
+      bg: 'black',
+    },
+    label: ' Confirm Delete All ',
+    content: '',
+    tags: true,
+  });
+
   // Help screen dialog (hidden by default)
   const helpDialog = blessed.box({
     parent: screen,
@@ -248,6 +266,7 @@ export function createApp() {
       '  c             Create a new agent VM',
       '  C (shift)     Create multiple VMs at once',
       '  d             Delete selected VM',
+      '  D (shift)     Delete ALL VMs at once',
       '  m             Mount VM filesystem (sshfs)',
       '  u             Unmount VM filesystem',
       '',
@@ -265,7 +284,7 @@ export function createApp() {
     ].join('\n'),
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  Enter:activate  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  p:prompt  b:broadcast  m:mount  u:unmount  j/k:nav  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function renderSidebar() {
@@ -351,6 +370,22 @@ export function createApp() {
     screen.render();
   }
 
+  function showConfirmDeleteAll(count: number) {
+    state.mode = 'confirm-delete-all';
+    confirmDeleteAllDialog.setContent(
+      `\n  Delete ALL ${count} VMs?\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
+    );
+    confirmDeleteAllDialog.show();
+    confirmDeleteAllDialog.focus();
+    screen.render();
+  }
+
+  function hideConfirmDeleteAll() {
+    state.mode = 'normal';
+    confirmDeleteAllDialog.hide();
+    screen.render();
+  }
+
   function render() {
     renderSidebar();
     renderMainView();
@@ -398,6 +433,10 @@ export function createApp() {
       hideConfirmDelete();
       return;
     }
+    if (state.mode === 'confirm-delete-all') {
+      hideConfirmDeleteAll();
+      return;
+    }
     if (state.mode === 'help') {
       hideHelp();
       return;
@@ -412,6 +451,10 @@ export function createApp() {
   screen.key(['C-c'], () => {
     if (state.mode === 'confirm-delete') {
       hideConfirmDelete();
+      return;
+    }
+    if (state.mode === 'confirm-delete-all') {
+      hideConfirmDeleteAll();
       return;
     }
     // Ctrl-C always quits, even from console mode
@@ -466,12 +509,17 @@ export function createApp() {
     if (state.mode === 'confirm-delete') {
       hideConfirmDelete();
       handlers['delete']?.();
+    } else if (state.mode === 'confirm-delete-all') {
+      hideConfirmDeleteAll();
+      handlers['delete-all']?.();
     }
   });
 
   screen.key(['n'], () => {
     if (state.mode === 'confirm-delete') {
       hideConfirmDelete();
+    } else if (state.mode === 'confirm-delete-all') {
+      hideConfirmDeleteAll();
     }
   });
 
@@ -502,6 +550,12 @@ export function createApp() {
   screen.key(['S-c'], () => {
     if (state.mode !== 'normal') return;
     showBulkCreate();
+  });
+
+  screen.key(['S-d'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    showConfirmDeleteAll(state.vms.length);
   });
 
   screen.key(['?'], () => {

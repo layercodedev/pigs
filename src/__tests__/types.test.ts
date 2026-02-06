@@ -152,4 +152,15 @@ describe('types', () => {
     };
     expect(state.mode).toBe('bulk-create');
   });
+
+  it('should support confirm-delete-all mode in AppState', () => {
+    const state: AppState = {
+      vms: [],
+      activeVmIndex: -1,
+      sidebarSelectedIndex: 0,
+      mode: 'confirm-delete-all',
+      settings: null,
+    };
+    expect(state.mode).toBe('confirm-delete-all');
+  });
 });

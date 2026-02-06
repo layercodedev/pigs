@@ -264,6 +264,46 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Delete all VMs handler
+  app.onKey('delete-all', async () => {
+    if (state.vms.length === 0) return;
+
+    const total = state.vms.length;
+    app.setStatusMessage(`Deleting all ${total} VMs...`);
+
+    const deletedNames = new Set<string>();
+    let failed = 0;
+
+    // Delete all VMs in parallel
+    const deletePromises = [...state.vms].map(async (vm) => {
+      try {
+        if (isMounted(vm.name)) {
+          await unmountVM(vm.name);
+          vm.mountPath = undefined;
+        }
+        destroyConsole(vm.name);
+        await deleteVM(client, vm.name);
+        deletedNames.add(vm.name);
+        app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
+        app.render();
+      } catch {
+        failed++;
+      }
+    });
+
+    await Promise.all(deletePromises);
+
+    // Remove successfully deleted VMs from state
+    state.vms = state.vms.filter((vm) => !deletedNames.has(vm.name));
+    state.sidebarSelectedIndex = 0;
+    state.activeVmIndex = state.vms.length > 0 ? 0 : -1;
+
+    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    app.setStatusMessage(`Deleted ${deletedNames.size} VMs${failMsg}`);
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Mount VM filesystem handler
   app.onKey('mount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
