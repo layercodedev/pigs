@@ -455,6 +455,7 @@ async function main() {
       connectSessionOutput(vm.name);
 
       // Send the claude command with the prompt
+      vm.taskStartedAt = Date.now();
       const escapedPrompt = prompt.replace(/'/g, "'\\''");
       writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
 
@@ -488,6 +489,7 @@ async function main() {
       try {
         const { cols, rows } = app.getTerminalSize();
         await attachConsole(client, vm.name, cols, rows);
+        vm.taskStartedAt = Date.now();
         writeToConsole(vm.name, command);
         sent++;
       } catch {

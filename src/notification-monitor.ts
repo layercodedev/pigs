@@ -107,6 +107,7 @@ async function checkSignal(client: SpritesClient, vm: VM): Promise<void> {
   const { stdout } = await sprite.exec(`test -f ${SIGNAL_FILE} && echo FOUND && rm -f ${SIGNAL_FILE} || true`);
   if (String(stdout).trim() === 'FOUND') {
     vm.needsAttention = true;
+    vm.taskStartedAt = undefined;
   }
 }
 

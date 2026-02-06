@@ -221,6 +221,30 @@ describe('types', () => {
     expect(vm.customLabel).toBeUndefined();
   });
 
+  it('should support taskStartedAt on VM', () => {
+    const now = Date.now();
+    const vm: VM = {
+      name: 'pigs-abc123',
+      id: 'pigs-abc123',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+      taskStartedAt: now,
+    };
+    expect(vm.taskStartedAt).toBe(now);
+  });
+
+  it('should allow taskStartedAt to be undefined', () => {
+    const vm: VM = {
+      name: 'pigs-abc123',
+      id: 'pigs-abc123',
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      needsAttention: false,
+    };
+    expect(vm.taskStartedAt).toBeUndefined();
+  });
+
   it('should support search mode in AppState', () => {
     const state: AppState = {
       vms: [],

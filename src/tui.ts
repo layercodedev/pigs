@@ -52,6 +52,23 @@ export function filterVMs(vms: VM[], filter: string): VM[] {
   });
 }
 
+/**
+ * Format an elapsed time from a start timestamp to a compact human-readable string.
+ * Returns '' if startTime is undefined/null.
+ * Examples: "5s", "1m30s", "1h05m", "2h30m"
+ */
+export function formatElapsed(startTime: number | undefined, now: number): string {
+  if (startTime == null) return '';
+  const elapsed = Math.max(0, Math.floor((now - startTime) / 1000));
+  if (elapsed < 60) return `${elapsed}s`;
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  if (minutes < 60) return `${minutes}m${seconds.toString().padStart(2, '0')}s`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h${mins.toString().padStart(2, '0')}m`;
+}
+
 export function createApp() {
   const screen = blessed.screen({
     smartCSR: true,
@@ -315,7 +332,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: 60,
-    height: 28,
+    height: 31,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -354,6 +371,9 @@ export function createApp() {
       '  ?             Toggle this help screen',
       '  q             Quit',
       '  Ctrl-C        Force quit',
+      '',
+      '  {bold}Info{/bold}',
+      '  Elapsed time shown in sidebar when task is running',
       '',
       '  {gray-fg}Press ? or Escape to close{/gray-fg}',
     ].join('\n'),
@@ -471,6 +491,7 @@ export function createApp() {
           : vm.provisioningStatus === 'pending' ? ' [wait]'
           : '';
         const mountLabel = vm.mountPath ? ' [mnt]' : '';
+        const elapsed = vm.taskStartedAt ? ` ${formatElapsed(vm.taskStartedAt, Date.now())}` : '';
 
         blessed.box({
           parent: sidebar,
@@ -483,7 +504,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}`,
+          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
         });
       });
@@ -1078,6 +1099,18 @@ export function createApp() {
   // Broadcast input cancel
   broadcastInput.on('cancel', () => {
     hideBroadcastInput();
+  });
+
+  // Refresh sidebar every second so elapsed timers update live
+  const elapsedTimer = setInterval(() => {
+    if (state.vms.some(vm => vm.taskStartedAt != null)) {
+      renderSidebar();
+    }
+  }, 1000);
+
+  // Clean up timer when screen is destroyed
+  screen.on('destroy', () => {
+    clearInterval(elapsedTimer);
   });
 
   return {

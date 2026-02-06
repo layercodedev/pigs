@@ -94,6 +94,17 @@ describe('notification-monitor', () => {
       expect(vm.needsAttention).toBe(true);
     });
 
+    it('should clear taskStartedAt when signal file is found', async () => {
+      const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
+      const client = createMockClient(mockSprite);
+      const vm = createVM({ taskStartedAt: Date.now() - 30000 });
+
+      await _checkSignal(client, vm);
+
+      expect(vm.needsAttention).toBe(true);
+      expect(vm.taskStartedAt).toBeUndefined();
+    });
+
     it('should not set needsAttention when no signal file', async () => {
       const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
       const client = createMockClient(mockSprite);

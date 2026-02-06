@@ -8,6 +8,7 @@ export interface VM {
   mountPath?: string;
   displayLabel?: string;
   customLabel?: boolean;
+  taskStartedAt?: number;
 }
 
 export interface PigsSettings {

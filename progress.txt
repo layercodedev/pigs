@@ -128,3 +128,18 @@ Changes:
 - `src/__tests__/notification-monitor.test.ts`: Added test verifying checkGitLabel skips VMs with customLabel set.
 
 All 166 tests pass. Type checks clean.
+
+## Elapsed Time Tracking Feature
+
+Added per-VM elapsed time tracking that shows a live-updating timer in the sidebar when an agent is working on a task. Essential for parallel agent orchestration — see at a glance how long each agent has been running, identify stalled agents, and understand task performance across your fleet. Timer starts when a prompt is sent (single or broadcast), clears automatically when the agent finishes (attention signal fires), and updates every second.
+
+Changes:
+- `src/types.ts`: Added `taskStartedAt?: number` field to VM interface
+- `src/tui.ts`: Added `formatElapsed()` pure function (compact format: 5s, 1m30s, 1h05m). Updated `renderSidebar()` to display elapsed time in cyan next to VMs with active tasks. Added 1-second interval timer to refresh sidebar when any VM has an active task. Updated help screen with elapsed time info (increased dialog height to 31).
+- `src/index.ts`: Set `vm.taskStartedAt = Date.now()` on prompt-submit and broadcast-submit when sending `claude -p` to a VM.
+- `src/notification-monitor.ts`: Clear `vm.taskStartedAt` when done-signal is detected (task finished).
+- `src/__tests__/format-elapsed.test.ts`: 10 tests covering undefined input, same time (0s), seconds-only, minutes+seconds, hours+minutes, negative elapsed clamping, boundary values, and zero-padding.
+- `src/__tests__/types.test.ts`: Added tests for taskStartedAt field (set and undefined).
+- `src/__tests__/notification-monitor.test.ts`: Added test verifying taskStartedAt is cleared when signal file is found.
+
+All 179 tests pass. Type checks clean.
