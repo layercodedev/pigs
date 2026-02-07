@@ -30,7 +30,11 @@ export async function attachConsole(
     cols,
     rows,
   });
-  await command.start();
+  // spawn() auto-starts the command; wait for the WebSocket to be ready
+  await new Promise<void>((resolve, reject) => {
+    command.on('spawn', resolve);
+    command.on('error', reject);
+  });
 
   const session: ConsoleSession = {
     vmName,

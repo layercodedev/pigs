@@ -59,6 +59,7 @@ function createMockClient(execResult = { stdout: '', stderr: '', exitCode: 0 }) 
     token: 'test-token',
     sprite: vi.fn().mockReturnValue({
       exec: vi.fn().mockResolvedValue(execResult),
+      execFile: vi.fn().mockResolvedValue(execResult),
     }),
   } as any;
 }
@@ -91,17 +92,18 @@ describe('mount-session', () => {
   });
 
   describe('installSSHKey', () => {
-    it('should exec the key install command on the VM', async () => {
+    it('should shellExec the key install command on the VM', async () => {
       const client = createMockClient();
       await installSSHKey(client, 'pigs-abc', 'ssh-ed25519 AAAA pigs-mount');
 
       expect(client.sprite).toHaveBeenCalledWith('pigs-abc');
       const sprite = client.sprite.mock.results[0].value;
-      expect(sprite.exec).toHaveBeenCalled();
-      const cmd = sprite.exec.mock.calls[0][0] as string;
-      expect(cmd).toContain('mkdir -p /root/.ssh');
-      expect(cmd).toContain('authorized_keys');
-      expect(cmd).toContain('base64 -d');
+      expect(sprite.execFile).toHaveBeenCalled();
+      // shellExec calls execFile('bash', ['-c', script])
+      const script = sprite.execFile.mock.calls[0][1][1] as string;
+      expect(script).toContain('mkdir -p /root/.ssh');
+      expect(script).toContain('authorized_keys');
+      expect(script).toContain('base64 -d');
     });
 
     it('should base64-encode the public key', async () => {
@@ -110,9 +112,9 @@ describe('mount-session', () => {
       await installSSHKey(client, 'pigs-abc', pubkey);
 
       const sprite = client.sprite.mock.results[0].value;
-      const cmd = sprite.exec.mock.calls[0][0] as string;
+      const script = sprite.execFile.mock.calls[0][1][1] as string;
       const expectedB64 = Buffer.from(pubkey).toString('base64');
-      expect(cmd).toContain(expectedB64);
+      expect(script).toContain(expectedB64);
     });
   });
 

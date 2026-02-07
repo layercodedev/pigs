@@ -14,8 +14,10 @@ import {
 import type { VM } from '../types.js';
 
 function createMockSprite(execResult?: { stdout: string; stderr: string; exitCode: number }) {
+  const result = execResult ?? { stdout: '', stderr: '', exitCode: 0 };
   return {
-    exec: vi.fn().mockResolvedValue(execResult ?? { stdout: '', stderr: '', exitCode: 0 }),
+    exec: vi.fn().mockResolvedValue(result),
+    execFile: vi.fn().mockResolvedValue(result),
   };
 }
 
@@ -88,8 +90,10 @@ describe('notification-monitor', () => {
       await _checkSignal(client, vm);
 
       expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-      expect(mockSprite.exec).toHaveBeenCalledWith(
-        expect.stringContaining(SIGNAL_FILE),
+      // shellExec calls execFile('bash', ['-c', script])
+      expect(mockSprite.execFile).toHaveBeenCalledWith(
+        'bash',
+        ['-c', expect.stringContaining(SIGNAL_FILE)],
       );
       expect(vm.needsAttention).toBe(true);
     });
@@ -122,8 +126,8 @@ describe('notification-monitor', () => {
 
       await _checkSignal(client, vm);
 
-      const execArg = mockSprite.exec.mock.calls[0][0] as string;
-      expect(execArg).toContain('rm -f');
+      const script = mockSprite.execFile.mock.calls[0][1][1] as string;
+      expect(script).toContain('rm -f');
     });
   });
 
@@ -148,7 +152,7 @@ describe('notification-monitor', () => {
 
       await _pollAll(client, [vm], onChange);
 
-      expect(mockSprite.exec).not.toHaveBeenCalled();
+      expect(mockSprite.execFile).not.toHaveBeenCalled();
       expect(onChange).not.toHaveBeenCalled();
     });
 
@@ -160,10 +164,11 @@ describe('notification-monitor', () => {
 
       await _pollAll(client, [vm], onChange);
 
-      // Should only be called once (git check), not twice (signal + git)
-      expect(mockSprite.exec).toHaveBeenCalledTimes(1);
-      expect(mockSprite.exec).toHaveBeenCalledWith(
-        expect.stringContaining('git rev-parse'),
+      // Should only be called once (git check via shellExec), not twice (signal + git)
+      expect(mockSprite.execFile).toHaveBeenCalledTimes(1);
+      expect(mockSprite.execFile).toHaveBeenCalledWith(
+        'bash',
+        ['-c', expect.stringContaining('git rev-parse')],
       );
     });
 
@@ -180,7 +185,7 @@ describe('notification-monitor', () => {
 
     it('should handle exec errors gracefully', async () => {
       const mockSprite = createMockSprite();
-      mockSprite.exec.mockRejectedValue(new Error('network error'));
+      mockSprite.execFile.mockRejectedValue(new Error('network error'));
       const client = createMockClient(mockSprite);
       const vm = createVM();
       const onChange = vi.fn();
@@ -229,8 +234,9 @@ describe('notification-monitor', () => {
       const changed = await _checkGitLabel(client, vm);
 
       expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-      expect(mockSprite.exec).toHaveBeenCalledWith(
-        expect.stringContaining('git rev-parse'),
+      expect(mockSprite.execFile).toHaveBeenCalledWith(
+        'bash',
+        ['-c', expect.stringContaining('git rev-parse')],
       );
       expect(vm.displayLabel).toBe('myproject:main');
       expect(changed).toBe(true);
@@ -290,7 +296,7 @@ describe('notification-monitor', () => {
 
       const changed = await _checkGitLabel(client, vm);
 
-      expect(mockSprite.exec).not.toHaveBeenCalled();
+      expect(mockSprite.execFile).not.toHaveBeenCalled();
       expect(vm.displayLabel).toBe('my-custom-name');
       expect(changed).toBe(false);
     });
@@ -334,7 +340,7 @@ describe('notification-monitor', () => {
       stopMonitor();
 
       vi.advanceTimersByTime(10000);
-      expect(mockSprite.exec).not.toHaveBeenCalled();
+      expect(mockSprite.execFile).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,5 +1,6 @@
 import type { SpritesClient } from '@fly/sprites';
 import type { VM } from './types.js';
+import { shellExec } from './shell-exec.js';
 
 const SIGNAL_FILE = '/tmp/claude-done-signal';
 const POLL_INTERVAL_MS = 5000;
@@ -104,7 +105,7 @@ async function pollAll(
  */
 async function checkSignal(client: SpritesClient, vm: VM): Promise<void> {
   const sprite = client.sprite(vm.name);
-  const { stdout } = await sprite.exec(`test -f ${SIGNAL_FILE} && echo FOUND && rm -f ${SIGNAL_FILE} || true`);
+  const { stdout } = await shellExec(sprite, `test -f ${SIGNAL_FILE} && echo FOUND && rm -f ${SIGNAL_FILE} || true`);
   if (String(stdout).trim() === 'FOUND') {
     vm.needsAttention = true;
     vm.taskStartedAt = undefined;
@@ -135,7 +136,7 @@ async function checkGitLabel(client: SpritesClient, vm: VM): Promise<boolean> {
   if (vm.customLabel) return false;
 
   const sprite = client.sprite(vm.name);
-  const { stdout } = await sprite.exec(
+  const { stdout } = await shellExec(sprite,
     'cd /root && git rev-parse --show-toplevel --abbrev-ref HEAD 2>/dev/null || true',
   );
   const lines = String(stdout).trim().split('\n').filter(Boolean);

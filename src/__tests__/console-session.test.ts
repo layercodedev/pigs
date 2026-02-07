@@ -30,16 +30,24 @@ function createMockSpriteCommand() {
   const stdin = {
     write: vi.fn().mockReturnValue(true),
   };
+  // spawn() auto-starts and emits 'spawn' when ready
+  const onHandlers = new Map<string, Function>();
   return {
     stdout,
     stderr,
     stdin,
-    start: vi.fn().mockResolvedValue(undefined),
     kill: vi.fn(),
     resize: vi.fn(),
     wait: vi.fn().mockResolvedValue(0),
-    on: vi.fn(),
+    on: vi.fn((event: string, handler: Function) => {
+      onHandlers.set(event, handler);
+      // Auto-emit 'spawn' on next tick to simulate SDK behavior
+      if (event === 'spawn') {
+        Promise.resolve().then(() => handler());
+      }
+    }),
     exitCode: vi.fn().mockReturnValue(-1),
+    _onHandlers: onHandlers,
   };
 }
 
@@ -59,7 +67,7 @@ describe('console-session', () => {
   });
 
   describe('attachConsole', () => {
-    it('should create a TTY session with spawn and start it', async () => {
+    it('should create a TTY session with spawn and wait for spawn event', async () => {
       const mockCmd = createMockSpriteCommand();
       const client = createMockClient(mockCmd);
 
@@ -72,7 +80,8 @@ describe('console-session', () => {
         cols: 120,
         rows: 40,
       });
-      expect(mockCmd.start).toHaveBeenCalled();
+      // Should listen for 'spawn' event (not call start())
+      expect(mockCmd.on).toHaveBeenCalledWith('spawn', expect.any(Function));
       expect(session.vmName).toBe('pigs-abc');
       expect(session.started).toBe(true);
     });
@@ -85,7 +94,9 @@ describe('console-session', () => {
       const session2 = await attachConsole(client, 'pigs-abc', 120, 40);
 
       expect(session1).toBe(session2);
-      expect(mockCmd.start).toHaveBeenCalledTimes(1);
+      // spawn should only be called once (second call returns cached session)
+      const sprite = client.sprite.mock.results[0].value;
+      expect(sprite.spawn).toHaveBeenCalledTimes(1);
     });
 
     it('should create separate sessions for different VMs', async () => {

@@ -9,6 +9,8 @@ const SETTINGS_DIR = join(homedir(), '.pigs');
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json');
 const CLAUDE_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
 
+import { shellExec } from './shell-exec.js';
+
 const DEFAULT_CLAUDE_MD = `# Agent Instructions
 
 You are a coding agent running on a remote VM. Follow the user's instructions carefully.
@@ -16,11 +18,11 @@ You are a coding agent running on a remote VM. Follow the user's instructions ca
 
 const PROVISION_SCRIPT = [
   'set -e',
-  // Install Claude Code globally via npm
-  'if ! command -v claude &>/dev/null; then npm install -g @anthropic-ai/claude-code; fi',
+  // Install Claude Code globally via npm (needs sudo for global install)
+  'if ! command -v claude &>/dev/null; then sudo npm install -g @anthropic-ai/claude-code; fi',
   // Ensure SSH server is installed and running
-  'if ! command -v sshd &>/dev/null; then apt-get update -qq && apt-get install -y -qq openssh-server; fi',
-  'if ! pgrep -x sshd &>/dev/null; then mkdir -p /run/sshd && /usr/sbin/sshd; fi',
+  'if ! command -v sshd &>/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq openssh-server; fi',
+  'if ! pgrep -x sshd &>/dev/null; then sudo mkdir -p /run/sshd && sudo /usr/sbin/sshd; fi',
 ].join('\n');
 
 /**
@@ -55,21 +57,21 @@ export async function provisionVM(
 
   // Step 1: Install Claude Code + SSH
   log('Installing Claude Code and SSH...');
-  await sprite.exec(PROVISION_SCRIPT);
+  await shellExec(sprite, PROVISION_SCRIPT);
   log('Claude Code and SSH installed.');
 
   // Step 2: Write CLAUDE.md from settings using base64 to avoid escaping issues
   log('Writing CLAUDE.md...');
   const resolvedSettings = settings ?? await loadSettings();
   const b64 = Buffer.from(resolvedSettings.claudeMd).toString('base64');
-  await sprite.exec(`echo '${b64}' | base64 -d > /root/CLAUDE.md`);
+  await shellExec(sprite, `echo '${b64}' | base64 -d | sudo tee /root/CLAUDE.md > /dev/null`);
   log('CLAUDE.md written.');
 
   // Step 3: Install Claude Code Stop hook for finish notifications
   log('Installing notification hook...');
   const hooksJson = JSON.stringify(CLAUDE_HOOKS_CONFIG);
   const hooksB64 = Buffer.from(hooksJson).toString('base64');
-  await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
+  await shellExec(sprite, `sudo mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d | sudo tee /root/.claude/settings.json > /dev/null`);
   log('Notification hook installed.');
 
   // Step 4: Copy Claude Code auth credentials from local machine to VM
@@ -77,7 +79,7 @@ export async function provisionVM(
   try {
     const credentialsData = await readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
     const credB64 = Buffer.from(credentialsData).toString('base64');
-    await sprite.exec(`echo '${credB64}' | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json`);
+    await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
     log('Claude Code credentials synced.');
   } catch {
     log('Warning: Could not read local Claude Code credentials (~/.claude/.credentials.json). Claude Code on this VM will need to be authenticated manually.');
@@ -102,14 +104,14 @@ export async function reprovisionVM(
   // Update CLAUDE.md
   log('Updating CLAUDE.md...');
   const b64 = Buffer.from(settings.claudeMd).toString('base64');
-  await sprite.exec(`echo '${b64}' | base64 -d > /root/CLAUDE.md`);
+  await shellExec(sprite, `echo '${b64}' | base64 -d | sudo tee /root/CLAUDE.md > /dev/null`);
   log('CLAUDE.md updated.');
 
   // Update hooks
   log('Updating notification hook...');
   const hooksJson = JSON.stringify(CLAUDE_HOOKS_CONFIG);
   const hooksB64 = Buffer.from(hooksJson).toString('base64');
-  await sprite.exec(`mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d > /root/.claude/settings.json`);
+  await shellExec(sprite, `sudo mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d | sudo tee /root/.claude/settings.json > /dev/null`);
   log('Notification hook updated.');
 
   // Refresh Claude Code auth credentials
@@ -117,7 +119,7 @@ export async function reprovisionVM(
   try {
     const credentialsData = await readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
     const credB64 = Buffer.from(credentialsData).toString('base64');
-    await sprite.exec(`echo '${credB64}' | base64 -d > /root/.claude/.credentials.json && chmod 600 /root/.claude/.credentials.json`);
+    await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
     log('Claude Code credentials synced.');
   } catch {
     log('Warning: Could not sync Claude Code credentials.');

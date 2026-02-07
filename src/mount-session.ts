@@ -5,6 +5,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { SpritesClient } from '@fly/sprites';
+import { shellExec } from './shell-exec.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -55,8 +56,8 @@ export async function installSSHKey(
 ): Promise<void> {
   const sprite = client.sprite(vmName);
   const b64 = Buffer.from(pubkey.trim()).toString('base64');
-  await sprite.exec(
-    `mkdir -p /root/.ssh && echo '${b64}' | base64 -d >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys`,
+  await shellExec(sprite,
+    `sudo mkdir -p /root/.ssh && echo '${b64}' | base64 -d | sudo tee -a /root/.ssh/authorized_keys > /dev/null && sudo chmod 600 /root/.ssh/authorized_keys`,
   );
 }
 

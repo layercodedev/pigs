@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-vm-modules node_modules/.bin/vitest run"
+    "test": "node --experimental-vm-modules node_modules/.bin/vitest run",
+    "test:integration": "node --experimental-vm-modules node_modules/.bin/vitest run --config vitest.integration.config.ts --sequence.concurrent=false"
   },
   "dependencies": {
     "@fly/sprites": "^0.0.1",

@@ -1,4 +1,5 @@
 import type { SpritesClient } from '@fly/sprites';
+import { shellExec } from './shell-exec.js';
 
 export interface PRInfo {
   number: number;
@@ -39,7 +40,7 @@ export async function fetchPRChain(client: SpritesClient, vmName: string): Promi
   }
 
   const sprite = client.sprite(vmName);
-  const { stdout } = await sprite.exec(
+  const { stdout } = await shellExec(sprite,
     'cd /root && gh pr list --state all --json number,title,headRefName,baseRefName,state,isDraft,url --limit 100 2>&1',
   );
   const raw = String(stdout).trim();
@@ -55,7 +56,7 @@ export async function fetchPRChain(client: SpritesClient, vmName: string): Promi
 
 export async function getCurrentBranch(client: SpritesClient, vmName: string): Promise<string> {
   const sprite = client.sprite(vmName);
-  const { stdout } = await sprite.exec(
+  const { stdout } = await shellExec(sprite,
     'cd /root && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""',
   );
   return String(stdout).trim();
@@ -63,7 +64,7 @@ export async function getCurrentBranch(client: SpritesClient, vmName: string): P
 
 export async function getDefaultBranch(client: SpritesClient, vmName: string): Promise<string> {
   const sprite = client.sprite(vmName);
-  const { stdout } = await sprite.exec(
+  const { stdout } = await shellExec(sprite,
     'cd /root && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s@^refs/remotes/origin/@@" || echo "main"',
   );
   return String(stdout).trim() || 'main';
