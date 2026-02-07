@@ -5,7 +5,7 @@ import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { SpritesClient } from '@fly/sprites';
-import { shellExec } from './shell-exec.js';
+import { shellExec } from './shell-exec.ts';
 
 const execFileAsync = promisify(execFile);
 

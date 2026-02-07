@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formatElapsed } from '../tui.js';
+import { formatElapsed } from '../tui.ts';
 
 describe('formatElapsed', () => {
   it('should return empty string for undefined startTime', () => {

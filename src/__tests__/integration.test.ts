@@ -12,8 +12,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import type { SpritesClient } from '@fly/sprites';
-import type { VM } from '../types.js';
-import { shellExec } from '../shell-exec.js';
+import type { VM } from '../types.ts';
+import { shellExec } from '../shell-exec.ts';
 
 // Module imports — these are the real functions the TUI calls
 import {
@@ -23,9 +23,9 @@ import {
   deleteVM,
   spriteToVM,
   generateVMName,
-} from '../sprites-client.js';
+} from '../sprites-client.ts';
 
-import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.js';
+import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.ts';
 
 import {
   attachConsole,
@@ -33,20 +33,20 @@ import {
   getSession,
   destroyConsole,
   resizeConsole,
-} from '../console-session.js';
+} from '../console-session.ts';
 
 import {
   _checkSignal,
   _checkGitLabel,
   defaultLabel,
   SIGNAL_FILE,
-} from '../notification-monitor.js';
+} from '../notification-monitor.ts';
 
 import {
   installSSHKey,
   ensureSSHKey,
   createProxyServer,
-} from '../mount-session.js';
+} from '../mount-session.ts';
 
 // ---------------------------------------------------------------------------
 // Shared state across all tests

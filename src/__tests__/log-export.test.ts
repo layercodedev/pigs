@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { buildTimestamp, buildLogPath, exportLog, LOGS_DIR } from '../log-export.js';
+import { buildTimestamp, buildLogPath, exportLog, LOGS_DIR } from '../log-export.ts';
 
 vi.mock('node:fs/promises', () => ({
   mkdir: vi.fn().mockResolvedValue(undefined),

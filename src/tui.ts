@@ -1,9 +1,9 @@
 import blessed from 'blessed';
-import type { AppState, SortMode, VM } from './types.js';
-import { historyUp, historyDown, resetCursor } from './prompt-history.js';
-import { getOutput } from './output-buffer.js';
-import { queueSize, getQueue } from './prompt-queue.js';
-import { stripAnsi } from './ansi.js';
+import type { AppState, SortMode, VM } from './types.ts';
+import { historyUp, historyDown, resetCursor } from './prompt-history.ts';
+import { getOutput } from './output-buffer.ts';
+import { queueSize, getQueue } from './prompt-queue.ts';
+import { stripAnsi } from './ansi.ts';
 
 /**
  * Find the index of the next VM that needs attention, starting after currentIndex.

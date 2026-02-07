@@ -1,6 +1,6 @@
 import type { SpritesClient } from '@fly/sprites';
-import type { VM } from './types.js';
-import { shellExec } from './shell-exec.js';
+import type { VM } from './types.ts';
+import { shellExec } from './shell-exec.ts';
 
 const SIGNAL_FILE = '/tmp/claude-done-signal';
 const POLL_INTERVAL_MS = 5000;

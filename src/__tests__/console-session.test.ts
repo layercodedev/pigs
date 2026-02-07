@@ -8,7 +8,7 @@ import {
   writeToConsole,
   detachAll,
   getActiveSessionNames,
-} from '../console-session.js';
+} from '../console-session.ts';
 
 // We need to reset the module's internal sessions map between tests
 // by destroying all sessions

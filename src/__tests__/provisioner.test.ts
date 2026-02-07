@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.js';
+import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.ts';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

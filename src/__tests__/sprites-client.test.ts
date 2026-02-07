@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSpritesClient, spriteToVM, generateVMName, listVMs, createVM, deleteVM } from '../sprites-client.js';
+import { createSpritesClient, spriteToVM, generateVMName, listVMs, createVM, deleteVM } from '../sprites-client.ts';
 
 describe('sprites-client', () => {
   const originalToken = process.env.SPRITES_TOKEN;

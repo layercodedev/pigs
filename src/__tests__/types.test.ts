@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { VM, AppState, PigsSettings, SortMode } from '../types.js';
+import type { VM, AppState, PigsSettings, SortMode } from '../types.ts';
 
 describe('types', () => {
   it('should create a valid VM object', () => {

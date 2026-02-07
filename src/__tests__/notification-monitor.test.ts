@@ -10,8 +10,8 @@ import {
   _pollAll,
   _checkSignal,
   _checkGitLabel,
-} from '../notification-monitor.js';
-import type { VM } from '../types.js';
+} from '../notification-monitor.ts';
+import type { VM } from '../types.ts';
 
 function createMockSprite(execResult?: { stdout: string; stderr: string; exitCode: number }) {
   const result = execResult ?? { stdout: '', stderr: '', exitCode: 0 };

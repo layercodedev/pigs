@@ -1,7 +1,7 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import { createApp } from './tui.js';
-import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.js';
+import { createApp } from './tui.ts';
+import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.ts';
 import {
   attachConsole,
   detachConsole,
@@ -10,15 +10,15 @@ import {
   writeToConsole,
   detachAll,
   getSession,
-} from './console-session.js';
-import { loadSettings, provisionVM, reprovisionVM } from './provisioner.js';
-import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
-import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
-import { loadHistory, addToHistory } from './prompt-history.js';
-import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
-import { exportLog } from './log-export.js';
-import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.js';
-import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.js';
+} from './console-session.ts';
+import { loadSettings, provisionVM, reprovisionVM } from './provisioner.ts';
+import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.ts';
+import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.ts';
+import { loadHistory, addToHistory } from './prompt-history.ts';
+import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
+import { exportLog } from './log-export.ts';
+import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.ts';
+import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 

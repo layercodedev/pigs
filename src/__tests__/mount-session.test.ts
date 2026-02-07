@@ -15,7 +15,7 @@ import {
   PUBKEY_PATH,
   SSH_DIR,
   MOUNTS_DIR,
-} from '../mount-session.js';
+} from '../mount-session.ts';
 
 // Mock node:fs/promises
 vi.mock('node:fs/promises', () => ({

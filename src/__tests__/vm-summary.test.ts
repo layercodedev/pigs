@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { buildVmSummary } from '../tui.js';
-import type { VM } from '../types.js';
+import { buildVmSummary } from '../tui.ts';
+import type { VM } from '../types.ts';
 
 function makeVM(overrides: Partial<VM> = {}): VM {
   return {

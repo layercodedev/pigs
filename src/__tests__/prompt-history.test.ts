@@ -7,7 +7,7 @@ import {
   historyDown,
   getHistory,
   _clearHistory,
-} from '../prompt-history.js';
+} from '../prompt-history.ts';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 
 // Mock node:fs/promises
