@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach, mock } from 'bun:test';
 import { buildTimestamp, buildLogPath, exportLog, LOGS_DIR } from '../log-export.ts';
 
-vi.mock('node:fs/promises', () => ({
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+mock.module('node:fs/promises', () => ({
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  writeFile: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe('buildTimestamp', () => {
@@ -51,7 +51,7 @@ describe('buildLogPath', () => {
 
 describe('exportLog', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('should create logs directory and write file', async () => {

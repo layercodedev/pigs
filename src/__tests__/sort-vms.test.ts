@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'bun:test';
 import { sortVMs, nextSortMode } from '../tui.ts';
 import type { VM } from '../types.ts';
 

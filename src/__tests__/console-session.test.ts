@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach } from 'bun:test';
 import {
   attachConsole,
   detachConsole,
@@ -20,15 +20,15 @@ function cleanupSessions() {
 
 function createMockSpriteCommand() {
   const stdout = {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
+    on: jest.fn(),
+    removeAllListeners: jest.fn(),
   };
   const stderr = {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
+    on: jest.fn(),
+    removeAllListeners: jest.fn(),
   };
   const stdin = {
-    write: vi.fn().mockReturnValue(true),
+    write: jest.fn().mockReturnValue(true),
   };
   // spawn() auto-starts and emits 'spawn' when ready
   const onHandlers = new Map<string, Function>();
@@ -36,17 +36,17 @@ function createMockSpriteCommand() {
     stdout,
     stderr,
     stdin,
-    kill: vi.fn(),
-    resize: vi.fn(),
-    wait: vi.fn().mockResolvedValue(0),
-    on: vi.fn((event: string, handler: Function) => {
+    kill: jest.fn(),
+    resize: jest.fn(),
+    wait: jest.fn().mockResolvedValue(0),
+    on: jest.fn((event: string, handler: Function) => {
       onHandlers.set(event, handler);
       // Auto-emit 'spawn' on next tick to simulate SDK behavior
       if (event === 'spawn') {
         Promise.resolve().then(() => handler());
       }
     }),
-    exitCode: vi.fn().mockReturnValue(-1),
+    exitCode: jest.fn().mockReturnValue(-1),
     _onHandlers: onHandlers,
   };
 }
@@ -54,8 +54,8 @@ function createMockSpriteCommand() {
 function createMockClient(mockCommand?: ReturnType<typeof createMockSpriteCommand>) {
   const cmd = mockCommand ?? createMockSpriteCommand();
   return {
-    sprite: vi.fn().mockReturnValue({
-      spawn: vi.fn().mockReturnValue(cmd),
+    sprite: jest.fn().mockReturnValue({
+      spawn: jest.fn().mockReturnValue(cmd),
     }),
     _mockCommand: cmd,
   } as any;

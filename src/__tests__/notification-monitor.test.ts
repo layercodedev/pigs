@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach, afterEach } from 'bun:test';
 import {
   startMonitor,
   stopMonitor,
@@ -16,15 +16,15 @@ import type { VM } from '../types.ts';
 function createMockSprite(execResult?: { stdout: string; stderr: string; exitCode: number }) {
   const result = execResult ?? { stdout: '', stderr: '', exitCode: 0 };
   return {
-    exec: vi.fn().mockResolvedValue(result),
-    execFile: vi.fn().mockResolvedValue(result),
+    exec: jest.fn().mockResolvedValue(result),
+    execFile: jest.fn().mockResolvedValue(result),
   };
 }
 
 function createMockClient(mockSprite?: ReturnType<typeof createMockSprite>) {
   const sprite = mockSprite ?? createMockSprite();
   return {
-    sprite: vi.fn().mockReturnValue(sprite),
+    sprite: jest.fn().mockReturnValue(sprite),
     _mockSprite: sprite,
   } as any;
 }
@@ -43,13 +43,13 @@ function createVM(overrides: Partial<VM> = {}): VM {
 
 describe('notification-monitor', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
+    jest.clearAllMocks();
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
     stopMonitor();
-    vi.useRealTimers();
+    jest.useRealTimers();
   });
 
   describe('CLAUDE_HOOKS_CONFIG', () => {
@@ -136,7 +136,7 @@ describe('notification-monitor', () => {
       const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
       const client = createMockClient(mockSprite);
       const vm = createVM();
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       await _pollAll(client, [vm], onChange);
 
@@ -148,7 +148,7 @@ describe('notification-monitor', () => {
       const mockSprite = createMockSprite();
       const client = createMockClient(mockSprite);
       const vm = createVM({ provisioningStatus: 'provisioning' });
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       await _pollAll(client, [vm], onChange);
 
@@ -160,7 +160,7 @@ describe('notification-monitor', () => {
       const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
       const client = createMockClient(mockSprite);
       const vm = createVM({ needsAttention: true, displayLabel: 'abc123' });
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       await _pollAll(client, [vm], onChange);
 
@@ -176,7 +176,7 @@ describe('notification-monitor', () => {
       const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
       const client = createMockClient(mockSprite);
       const vm = createVM({ displayLabel: 'abc123' }); // already has default label
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       await _pollAll(client, [vm], onChange);
 
@@ -188,7 +188,7 @@ describe('notification-monitor', () => {
       mockSprite.execFile.mockRejectedValue(new Error('network error'));
       const client = createMockClient(mockSprite);
       const vm = createVM();
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       await expect(_pollAll(client, [vm], onChange)).resolves.toBeUndefined();
       expect(onChange).not.toHaveBeenCalled();
@@ -199,7 +199,7 @@ describe('notification-monitor', () => {
       const client = createMockClient(mockSprite);
       const vm1 = createVM({ name: 'pigs-aaa' });
       const vm2 = createVM({ name: 'pigs-bbb' });
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       await _pollAll(client, [vm1, vm2], onChange);
 
@@ -320,13 +320,13 @@ describe('notification-monitor', () => {
     it('should not start multiple timers', () => {
       const client = createMockClient();
       const vms: VM[] = [];
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       startMonitor(client, vms, onChange);
       startMonitor(client, vms, onChange); // duplicate call
 
       // Advance timer once - should only have one interval
-      vi.advanceTimersByTime(5000);
+      jest.advanceTimersByTime(5000);
       stopMonitor();
     });
 
@@ -334,12 +334,12 @@ describe('notification-monitor', () => {
       const mockSprite = createMockSprite();
       const client = createMockClient(mockSprite);
       const vm = createVM();
-      const onChange = vi.fn();
+      const onChange = jest.fn();
 
       startMonitor(client, [vm], onChange);
       stopMonitor();
 
-      vi.advanceTimersByTime(10000);
+      jest.advanceTimersByTime(10000);
       expect(mockSprite.execFile).not.toHaveBeenCalled();
     });
   });

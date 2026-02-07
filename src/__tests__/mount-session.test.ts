@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach, afterEach, mock } from 'bun:test';
 import net from 'node:net';
 import {
   ensureSSHKey,
@@ -18,21 +18,21 @@ import {
 } from '../mount-session.ts';
 
 // Mock node:fs/promises
-vi.mock('node:fs/promises', () => ({
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  readFile: vi.fn().mockResolvedValue('ssh-ed25519 AAAA... pigs-mount\n'),
-  stat: vi.fn().mockResolvedValue({}),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+mock.module('node:fs/promises', () => ({
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  readFile: jest.fn().mockResolvedValue('ssh-ed25519 AAAA... pigs-mount\n'),
+  stat: jest.fn().mockResolvedValue({}),
+  writeFile: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock node:child_process
-const mockExecFile = vi.fn().mockImplementation(
+const mockExecFile = jest.fn().mockImplementation(
   (_cmd: string, _args: string[], cb?: (err: any, stdout: string, stderr: string) => void) => {
     if (cb) cb(null, '', '');
     return { stdout: '', stderr: '' };
   },
 );
-vi.mock('node:child_process', () => ({
+mock.module('node:child_process', () => ({
   execFile: (...args: any[]) => {
     const cb = args[args.length - 1];
     if (typeof cb === 'function') {
@@ -40,26 +40,26 @@ vi.mock('node:child_process', () => ({
     }
     return mockExecFile(...args);
   },
-  spawn: vi.fn().mockReturnValue({
-    stderr: { on: vi.fn() },
-    on: vi.fn((event: string, handler: Function) => {
+  spawn: jest.fn().mockReturnValue({
+    stderr: { on: jest.fn() },
+    on: jest.fn((event: string, handler: Function) => {
       if (event === 'close') handler(0);
     }),
   }),
 }));
 
 // Mock node:util
-vi.mock('node:util', () => ({
-  promisify: (fn: Function) => vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
+mock.module('node:util', () => ({
+  promisify: (fn: Function) => jest.fn().mockResolvedValue({ stdout: '', stderr: '' }),
 }));
 
 function createMockClient(execResult = { stdout: '', stderr: '', exitCode: 0 }) {
   return {
     baseURL: 'https://api.sprites.dev',
     token: 'test-token',
-    sprite: vi.fn().mockReturnValue({
-      exec: vi.fn().mockResolvedValue(execResult),
-      execFile: vi.fn().mockResolvedValue(execResult),
+    sprite: jest.fn().mockReturnValue({
+      exec: jest.fn().mockResolvedValue(execResult),
+      execFile: jest.fn().mockResolvedValue(execResult),
     }),
   } as any;
 }
@@ -71,7 +71,7 @@ function cleanupMounts() {
 describe('mount-session', () => {
   beforeEach(() => {
     cleanupMounts();
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
@@ -208,13 +208,13 @@ describe('mount-session', () => {
 
   describe('unmountVM', () => {
     it('should be safe to call for non-mounted VM', async () => {
-      await expect(unmountVM('nonexistent')).resolves.not.toThrow();
+      await unmountVM('nonexistent');
     });
 
     it('should remove mount from tracking and close proxy', async () => {
       const server = net.createServer();
       server.listen(0, '127.0.0.1');
-      const closeSpy = vi.spyOn(server, 'close');
+      const closeSpy = jest.spyOn(server, 'close');
       _mounts.set('pigs-abc', {
         vmName: 'pigs-abc',
         mountPath: '/tmp/test-mount',
@@ -254,7 +254,7 @@ describe('mount-session', () => {
     });
 
     it('should be safe when no mounts exist', async () => {
-      await expect(unmountAll()).resolves.not.toThrow();
+      await unmountAll();
     });
   });
 

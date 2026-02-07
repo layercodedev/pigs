@@ -10,3 +10,13 @@
 - Simplified `.gitignore` (removed dist/ and tsbuildinfo entries)
 - Installed Bun 1.3.8 and `@types/bun`
 - Verified: typecheck passes, app starts, 259/265 tests pass (6 failures are vitest-specific mocking APIs that need bun:test migration)
+
+## Migrate tests from vitest to bun:test
+
+- Replaced `import { ... } from 'vitest'` with `import { ... } from 'bun:test'` in all 19 test files
+- Replaced `vi.fn()`, `vi.clearAllMocks()`, `vi.spyOn()`, `vi.useFakeTimers()`, `vi.useRealTimers()`, `vi.advanceTimersByTime()` → `jest.*` equivalents from bun:test
+- Replaced `vi.mock()` → `mock.module()` (bun:test native module mocking API) in 4 files
+- Replaced `vi.mocked(fn)` → `fn as Mock<typeof fn>` type casts in provisioner.test.ts and prompt-history.test.ts
+- Fixed `expect(...).resolves.not.toThrow()` pattern in mount-session.test.ts (not supported in bun:test — simplified to `await fn()`)
+- Fixed strict type issue in integration.test.ts (`process.env.SPRITES_TOKEN` → non-null assertion)
+- Verified: typecheck passes, all 270 unit tests pass with 0 failures

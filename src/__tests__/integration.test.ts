@@ -10,7 +10,7 @@
  *
  * Requires SPRITES_TOKEN in the environment (loaded from ~/.profile).
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import type { SpritesClient } from '@fly/sprites';
 import type { VM } from '../types.ts';
 import { shellExec } from '../shell-exec.ts';
@@ -91,7 +91,7 @@ afterAll(async () => {
 describe('SpritesClient (live)', () => {
   it('creates a client with the real token', () => {
     expect(client).toBeDefined();
-    expect(client.token).toBe(process.env.SPRITES_TOKEN);
+    expect(client.token).toBe(process.env.SPRITES_TOKEN!);
     expect(client.baseURL).toMatch(/^https?:\/\//);
   });
 });
