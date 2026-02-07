@@ -163,7 +163,7 @@ When PR #1 merges into `main`, PR #2's base updates to `main`, and the chain con
 
 Add the following to the `claudeMd` field in `~/.pigs/settings.json` so each agent automatically follows the chained branch workflow:
 
-```
+````
 ## Git Workflow
 
 - Branch from the CURRENT branch (HEAD), not main — the previous agent's work is your starting point
@@ -179,7 +179,7 @@ Add the following to the `claudeMd` field in `~/.pigs/settings.json` so each age
   where `<parent-branch>` is the branch you branched FROM (not main, unless you are on main)
 - After creating the PR, STAY on your new branch so the next task chains from it
 - Do NOT switch back to main
-```
+````
 
 This ensures each agent leaves the repo in the right state for the next task in the chain.
 
