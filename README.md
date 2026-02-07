@@ -347,6 +347,75 @@ Pigs uses a polling-based notification system to detect when agents finish:
 
 In **Ralph mode**, intermediate signals are suppressed — you only get notified when the entire iteration loop completes.
 
+## Mobile Access
+
+Pigs runs in a terminal, which means you can monitor and control your agent fleet from your phone. Two options:
+
+### Option 1: Termius (SSH)
+
+[Termius](https://apps.apple.com/app/termius-terminal-ssh-client/id549039908) is a full SSH client for iOS (and Android). If pigs is running on a remote server or your home machine, you can SSH in and attach directly.
+
+1. Install Termius from the App Store
+2. Add a new host with your machine's IP/hostname, username, and SSH key or password
+3. Connect and run `cd pigs && npm start` (or attach to an existing session — see tmux tip below)
+
+**Tip: Use tmux so you can detach and reattach without losing your session:**
+
+```bash
+# On your machine, start pigs inside tmux
+tmux new -s pigs
+npm start
+
+# From Termius on your phone, reattach
+tmux attach -t pigs
+```
+
+Termius supports key-based auth, saved hosts, and port forwarding — so you can set this up once and connect with a single tap.
+
+### Option 2: VibeTunnel (Browser)
+
+[VibeTunnel](https://github.com/amantus-ai/vibetunnel) turns any browser into a terminal. No SSH keys or client apps needed — just open a URL on your phone.
+
+**Install:**
+
+```bash
+# macOS (Apple Silicon)
+brew install --cask vibetunnel
+
+# Any system with Node.js 22.12+
+npm install -g vibetunnel
+```
+
+**Run pigs through VibeTunnel:**
+
+```bash
+# Wrap pigs in a VibeTunnel session
+vt npm start
+
+# Or use an interactive shell
+vt --shell
+# then run: npm start
+```
+
+**Access from your phone:**
+
+On the same network, open `http://<your-machine-ip>:4020` in your phone's browser.
+
+For access from anywhere, use one of VibeTunnel's tunneling options:
+
+```bash
+# Tailscale (recommended — secure, peer-to-peer)
+# Access via your Tailscale hostname with automatic HTTPS
+
+# ngrok (quick public URL)
+# Generates a public URL with SSL
+
+# Cloudflare Quick Tunnel
+cloudflared tunnel --url http://localhost:4020
+```
+
+VibeTunnel records sessions in asciinema format, so you can replay what your agents did while you were away.
+
 ## Development
 
 ```bash
