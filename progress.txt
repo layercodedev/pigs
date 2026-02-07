@@ -20,3 +20,11 @@
 - Fixed `expect(...).resolves.not.toThrow()` pattern in mount-session.test.ts (not supported in bun:test — simplified to `await fn()`)
 - Fixed strict type issue in integration.test.ts (`process.env.SPRITES_TOKEN` → non-null assertion)
 - Verified: typecheck passes, all 270 unit tests pass with 0 failures
+
+## Add multi-platform one-line installation
+
+- Created `install.sh`: cross-platform installer script (macOS, Linux, WSL) that auto-installs Bun if missing, clones the repo to `~/.pigs/bin/pigs`, installs deps, creates a `pigs` launcher script, and adds it to PATH (supports bash, zsh, fish)
+- Updated README.md Installation section: replaced old Node.js/npm instructions with one-line `curl | bash` installer and manual Bun-based install instructions
+- Updated README.md throughout: replaced all `npm start`/`npm run` references with `bun start`/`bun run` equivalents (Quick Start, Mobile Access/Termius, VibeTunnel, Development sections)
+- Removed Node.js 18+ prerequisite from README (Bun is now the only runtime requirement, and the installer handles it)
+- Verified: typecheck passes, all 270 unit tests pass with 0 failures

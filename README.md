@@ -25,30 +25,37 @@ Built on [sprites.dev](https://sprites.dev) for VM provisioning and [blessed](ht
 ## Installation
 
 **Prerequisites:**
-- Node.js 18+
 - A [sprites.dev](https://sprites.dev) account with API access
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) authenticated locally (your auth token is automatically synced to VMs during provisioning)
 
+### One-line install (macOS, Linux, WSL)
+
 ```bash
-# Clone the repository
+curl -fsSL https://raw.githubusercontent.com/layercodedev/pigs/master/install.sh | bash
+```
+
+This installs [Bun](https://bun.sh) (if not already installed), clones the repo to `~/.pigs/bin/pigs`, and adds the `pigs` command to your PATH.
+
+### Manual install
+
+```bash
+# Install Bun (if not already installed)
+curl -fsSL https://bun.sh/install | bash
+
+# Clone and install
 git clone https://github.com/layercodedev/pigs.git
 cd pigs
-
-# Install dependencies
-npm install
-
-# Build
-npm run build
+bun install
 
 # Run
-npm start
+bun start
 ```
 
 On first launch, pigs creates `~/.pigs/settings.json` with a default `CLAUDE.md` template that gets written to every VM. Edit this file to customize the system instructions your agents receive.
 
 ## Quick Start
 
-1. **Start pigs** — `npm start`
+1. **Start pigs** — `bun start` (or just `pigs` if installed via the one-line installer)
 2. **Create a VM** — Press `c` to create a single agent VM, or `C` to create a batch (up to 20)
 3. **Wait for provisioning** — VMs show `[setup]` in the sidebar while Claude Code and SSH are being installed
 4. **Send a prompt** — Press `p`, type your instruction, hit Enter. The agent starts working.
@@ -357,14 +364,14 @@ Pigs runs in a terminal, which means you can monitor and control your agent flee
 
 1. Install Termius from the App Store
 2. Add a new host with your machine's IP/hostname, username, and SSH key or password
-3. Connect and run `cd pigs && npm start` (or attach to an existing session — see tmux tip below)
+3. Connect and run `cd pigs && bun start` (or attach to an existing session — see tmux tip below)
 
 **Tip: Use tmux so you can detach and reattach without losing your session:**
 
 ```bash
 # On your machine, start pigs inside tmux
 tmux new -s pigs
-npm start
+bun start
 
 # From Termius on your phone, reattach
 tmux attach -t pigs
@@ -390,11 +397,11 @@ npm install -g vibetunnel
 
 ```bash
 # Wrap pigs in a VibeTunnel session
-vt npm start
+vt bun start
 
 # Or use an interactive shell
 vt --shell
-# then run: npm start
+# then run: bun start
 ```
 
 **Access from your phone:**
@@ -419,14 +426,14 @@ VibeTunnel records sessions in asciinema format, so you can replay what your age
 ## Development
 
 ```bash
-# Watch mode (recompile on changes)
-npm run dev
+# Watch mode (auto-restart on changes)
+bun run dev
 
 # Type-check without emitting
-npm run typecheck
+bun run typecheck
 
 # Run tests
-npm test
+bun test
 ```
 
 ## License

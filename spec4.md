@@ -1,3 +1,3 @@
 - [x] migrate codebase to bun. use bun inbuilt features where possible.
 - [x] migrate tests from vitest to bun:test
-- [ ] add multi platform one line installation option so users don't have to download the repo to use pigs
+- [x] add multi platform one line installation option so users don't have to download the repo to use pigs
