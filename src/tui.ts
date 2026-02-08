@@ -459,6 +459,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
+      '  L (shift)     View Linear tasks assigned to you',
       '  g             View PR chain for selected VM\'s repo',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
@@ -719,6 +720,33 @@ export function createApp() {
     keys: true,
   });
 
+  // Linear tasks overlay (hidden by default)
+  const linearOverlay = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%-1',
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'blue' },
+      bg: 'black',
+      label: { fg: 'white', bold: true },
+    },
+    label: ' Linear Tasks ',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+      style: { bg: 'gray' },
+    },
+    mouse: true,
+    keys: true,
+  });
+
+  let linearSelectedIndex = 0;
+
   // Queue viewer overlay (hidden by default)
   const queueViewerOverlay = blessed.box({
     parent: screen,
@@ -776,7 +804,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  i:dashboard  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  L:linear  i:dashboard  s:sort  /:search  ?:help  q:quit';
   const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
@@ -985,6 +1013,10 @@ export function createApp() {
       hidePRChain();
       return;
     }
+    if (state.mode === 'linear') {
+      hideLinear();
+      return;
+    }
     if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue' || state.mode === 'ralph-iterations' || state.mode === 'ralph-prompt') {
       // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
@@ -1010,6 +1042,11 @@ export function createApp() {
   });
 
   screen.key(['j', 'down'], () => {
+    if (state.mode === 'linear') {
+      linearOverlay.scroll(1);
+      screen.render();
+      return;
+    }
     if (state.mode === 'pr-chain') {
       prChainOverlay.scroll(1);
       screen.render();
@@ -1041,6 +1078,11 @@ export function createApp() {
   });
 
   screen.key(['k', 'up'], () => {
+    if (state.mode === 'linear') {
+      linearOverlay.scroll(-1);
+      screen.render();
+      return;
+    }
     if (state.mode === 'pr-chain') {
       prChainOverlay.scroll(-1);
       screen.render();
@@ -1191,6 +1233,10 @@ export function createApp() {
   });
 
   screen.key(['r'], () => {
+    if (state.mode === 'linear') {
+      handlers['linear-refresh']?.();
+      return;
+    }
     if (state.mode === 'pr-chain') {
       handlers['pr-chain-refresh']?.();
       return;
@@ -1271,6 +1317,15 @@ export function createApp() {
     showPRChain();
   });
 
+  screen.key(['S-l'], () => {
+    if (state.mode === 'linear') {
+      hideLinear();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    showLinear();
+  });
+
   screen.key(['s'], () => {
     if (state.mode === 'pr-chain') {
       handlers['pr-chain-sync']?.();
@@ -1314,6 +1369,9 @@ export function createApp() {
     }
     if (state.mode === 'pr-chain') {
       hidePRChain();
+    }
+    if (state.mode === 'linear') {
+      hideLinear();
     }
     if (state.mode === 'queue-viewer') {
       hideQueueViewer();
@@ -1638,6 +1696,32 @@ export function createApp() {
     prChainOverlay.setLabel(` ${label} `);
     prChainOverlay.setContent(content);
     prChainOverlay.setScrollPerc(0);
+    screen.render();
+  }
+
+  function showLinear() {
+    state.mode = 'linear';
+    linearSelectedIndex = 0;
+    linearOverlay.setContent('\n  {yellow-fg}Fetching Linear tasks...{/yellow-fg}');
+    linearOverlay.setLabel(' Linear Tasks ');
+    linearOverlay.show();
+    linearOverlay.focus();
+    statusBar.setContent(' L:close  r:refresh  j/k:navigate  Escape:close');
+    screen.render();
+    handlers['linear-open']?.();
+  }
+
+  function hideLinear() {
+    state.mode = 'normal';
+    linearOverlay.hide();
+    statusBar.setContent(normalStatusText);
+    render();
+  }
+
+  function renderLinearContent(content: string, label: string) {
+    linearOverlay.setLabel(` ${label} `);
+    linearOverlay.setContent(content);
+    linearOverlay.setScrollPerc(0);
     screen.render();
   }
 
@@ -1990,6 +2074,11 @@ export function createApp() {
     renderPRChain(content: string, label: string) {
       if (state.mode === 'pr-chain') {
         renderPRChainContent(content, label);
+      }
+    },
+    renderLinear(content: string, label: string) {
+      if (state.mode === 'linear') {
+        renderLinearContent(content, label);
       }
     },
     resetStatus() {

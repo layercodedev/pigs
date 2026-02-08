@@ -19,6 +19,7 @@ import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
 import { exportLog } from './log-export.ts';
 import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.ts';
 import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
+import { fetchMyIssues, renderLinearIssues, clearLinearCache } from './linear-client.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -671,6 +672,37 @@ async function main() {
     } catch (err: any) {
       app.setStatusMessage(`Sync failed: ${err.message}`);
       setTimeout(() => app.resetStatus(), 3000);
+    }
+  });
+
+  // Linear tasks open handler
+  app.onKey('linear-open', async () => {
+    try {
+      const issues = await fetchMyIssues();
+      const width = (app.screen.width as number) - 4;
+      const lines = renderLinearIssues(issues, 0, width);
+      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+    } catch (err: any) {
+      const msg = String(err.message || err);
+      if (msg.includes('LINEAR_API_KEY')) {
+        app.renderLinear('\n  {red-fg}LINEAR_API_KEY environment variable is not set{/red-fg}\n\n  Get your API key from Linear Settings > API > Personal API keys', 'Linear Tasks');
+      } else {
+        app.renderLinear(`\n  {red-fg}Error: ${msg}{/red-fg}`, 'Linear Tasks');
+      }
+    }
+  });
+
+  // Linear tasks refresh handler
+  app.onKey('linear-refresh', async () => {
+    clearLinearCache();
+    app.renderLinear('\n  {yellow-fg}Refreshing Linear tasks...{/yellow-fg}', 'Linear Tasks');
+    try {
+      const issues = await fetchMyIssues();
+      const width = (app.screen.width as number) - 4;
+      const lines = renderLinearIssues(issues, 0, width);
+      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+    } catch (err: any) {
+      app.renderLinear(`\n  {red-fg}Error: ${String(err.message || err)}{/red-fg}`, 'Linear Tasks');
     }
   });
 

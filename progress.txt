@@ -28,3 +28,13 @@
 - Updated README.md throughout: replaced all `npm start`/`npm run` references with `bun start`/`bun run` equivalents (Quick Start, Mobile Access/Termius, VibeTunnel, Development sections)
 - Removed Node.js 18+ prerequisite from README (Bun is now the only runtime requirement, and the installer handles it)
 - Verified: typecheck passes, all 270 unit tests pass with 0 failures
+
+## Add Linear task viewing
+
+- Created `src/linear-client.ts`: Linear GraphQL API client with `LinearIssue` interface, `fetchMyIssues()` (queries `viewer.assignedIssues` for non-completed/cancelled issues), `renderLinearIssues()` (renders issue list with identifier, title, state, priority, labels), and 30s response cache
+- Added `'linear'` mode to `AppState` in `src/types.ts`
+- Added Linear overlay to `src/tui.ts`: full-screen scrollable overlay (blue border), `Shift-L` keybinding to open/close, `j/k` scrolling, `r` to refresh, `Escape` to close, updated status bar and help dialog
+- Added `linear-open` and `linear-refresh` event handlers in `src/index.ts` with error handling for missing `LINEAR_API_KEY`
+- Created `src/__tests__/linear-client.test.ts`: 11 unit tests covering empty state, rendering, selection highlighting, priority labels, label display, title truncation, and issue count footer
+- Authentication: uses `LINEAR_API_KEY` environment variable with `Authorization` header to `https://api.linear.app/graphql`
+- Verified: typecheck passes, 308/309 tests pass (1 pre-existing integration test failure unrelated to this change)
