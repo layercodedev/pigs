@@ -459,7 +459,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
-      '  L (shift)     View Linear tasks assigned to you',
+      '  L (shift)     View Linear tasks (Enter to claim & send to agent)',
       '  g             View PR chain for selected VM\'s repo',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
@@ -746,6 +746,7 @@ export function createApp() {
   });
 
   let linearSelectedIndex = 0;
+  let linearIssues: import('./linear-client.ts').LinearIssue[] = [];
 
   // Queue viewer overlay (hidden by default)
   const queueViewerOverlay = blessed.box({
@@ -1043,8 +1044,10 @@ export function createApp() {
 
   screen.key(['j', 'down'], () => {
     if (state.mode === 'linear') {
-      linearOverlay.scroll(1);
-      screen.render();
+      if (linearIssues.length > 0 && linearSelectedIndex < linearIssues.length - 1) {
+        linearSelectedIndex++;
+        handlers['linear-rerender']?.();
+      }
       return;
     }
     if (state.mode === 'pr-chain') {
@@ -1079,8 +1082,10 @@ export function createApp() {
 
   screen.key(['k', 'up'], () => {
     if (state.mode === 'linear') {
-      linearOverlay.scroll(-1);
-      screen.render();
+      if (linearIssues.length > 0 && linearSelectedIndex > 0) {
+        linearSelectedIndex--;
+        handlers['linear-rerender']?.();
+      }
       return;
     }
     if (state.mode === 'pr-chain') {
@@ -1113,6 +1118,13 @@ export function createApp() {
   });
 
   screen.key(['enter'], () => {
+    if (state.mode === 'linear') {
+      if (linearIssues.length > 0 && linearIssues[linearSelectedIndex]) {
+        handlers['linear-claim']?.(linearIssues[linearSelectedIndex]);
+        hideLinear();
+      }
+      return;
+    }
     if (state.mode !== 'normal') return;
     if (state.vms.length > 0 && state.sidebarSelectedIndex >= 0) {
       state.activeVmIndex = state.sidebarSelectedIndex;
@@ -1706,7 +1718,7 @@ export function createApp() {
     linearOverlay.setLabel(' Linear Tasks ');
     linearOverlay.show();
     linearOverlay.focus();
-    statusBar.setContent(' L:close  r:refresh  j/k:navigate  Escape:close');
+    statusBar.setContent(' Enter:claim task  L:close  r:refresh  j/k:navigate  Escape:close');
     screen.render();
     handlers['linear-open']?.();
   }
@@ -2080,6 +2092,12 @@ export function createApp() {
       if (state.mode === 'linear') {
         renderLinearContent(content, label);
       }
+    },
+    setLinearIssues(issues: import('./linear-client.ts').LinearIssue[]) {
+      linearIssues = issues;
+    },
+    getLinearSelectedIndex() {
+      return linearSelectedIndex;
     },
     resetStatus() {
       if (state.mode === 'console') {

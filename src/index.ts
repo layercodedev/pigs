@@ -19,7 +19,8 @@ import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
 import { exportLog } from './log-export.ts';
 import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.ts';
 import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
-import { fetchMyIssues, renderLinearIssues, clearLinearCache } from './linear-client.ts';
+import { fetchMyIssues, renderLinearIssues, clearLinearCache, startIssue } from './linear-client.ts';
+import type { LinearIssue } from './linear-client.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -679,6 +680,7 @@ async function main() {
   app.onKey('linear-open', async () => {
     try {
       const issues = await fetchMyIssues();
+      app.setLinearIssues(issues);
       const width = (app.screen.width as number) - 4;
       const lines = renderLinearIssues(issues, 0, width);
       app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
@@ -698,11 +700,89 @@ async function main() {
     app.renderLinear('\n  {yellow-fg}Refreshing Linear tasks...{/yellow-fg}', 'Linear Tasks');
     try {
       const issues = await fetchMyIssues();
+      app.setLinearIssues(issues);
       const width = (app.screen.width as number) - 4;
       const lines = renderLinearIssues(issues, 0, width);
       app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
     } catch (err: any) {
       app.renderLinear(`\n  {red-fg}Error: ${String(err.message || err)}{/red-fg}`, 'Linear Tasks');
+    }
+  });
+
+  // Linear re-render handler (when selection changes with j/k)
+  app.onKey('linear-rerender', async () => {
+    try {
+      const issues = await fetchMyIssues(); // returns cached data
+      const width = (app.screen.width as number) - 4;
+      const idx = app.getLinearSelectedIndex();
+      const lines = renderLinearIssues(issues, idx, width);
+      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+    } catch { /* ignore */ }
+  });
+
+  // Linear claim handler - create VM, set issue to In Progress, send as prompt
+  app.onKey('linear-claim', async (issue: LinearIssue) => {
+    app.setStatusMessage(`Claiming ${issue.identifier}...`);
+
+    // Set issue to In Progress in Linear
+    try {
+      await startIssue(issue.id);
+    } catch (err: any) {
+      app.setStatusMessage(`Failed to update Linear: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    // Create a new VM
+    app.setStatusMessage(`Creating VM for ${issue.identifier}...`);
+    try {
+      const vm = await createVM(client);
+      vm.provisioningStatus = 'pending';
+      vm.displayLabel = issue.identifier;
+      vm.customLabel = true;
+      state.vms.push(vm);
+      state.sidebarSelectedIndex = state.vms.length - 1;
+      state.activeVmIndex = state.vms.length - 1;
+      app.render();
+
+      // Provision VM
+      vm.provisioningStatus = 'provisioning';
+      app.setStatusMessage(`Provisioning ${issue.identifier}...`);
+      app.render();
+      try {
+        await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+          app.setStatusMessage(`${issue.identifier}: ${msg}`);
+        });
+        vm.provisioningStatus = 'done';
+      } catch (err: any) {
+        vm.provisioningStatus = 'failed';
+        app.setStatusMessage(`Provisioning failed: ${err.message}`);
+        app.render();
+        setTimeout(() => app.resetStatus(), 3000);
+        return;
+      }
+
+      // Send the task as a prompt using the Linear branch name
+      app.setStatusMessage(`Sending task to ${issue.identifier}...`);
+      const { cols, rows } = app.getTerminalSize();
+      await attachConsole(client, vm.name, cols, rows);
+      clearOutput(vm.name);
+      app.clearTerminal();
+      connectSessionOutput(vm.name);
+      vm.taskStartedAt = Date.now();
+
+      // Build prompt with branch name so PRs auto-link to Linear
+      const desc = issue.description ? `\n\nDescription:\n${issue.description}` : '';
+      const prompt = `You are working on Linear issue ${issue.identifier}: "${issue.title}"${desc}\n\nIMPORTANT: Use the git branch name "${issue.branchName}" for your work so that PRs automatically link to this Linear issue. Create this branch with: git checkout -b ${issue.branchName}\n\nPlease implement this task.`;
+      const escapedPrompt = prompt.replace(/'/g, "'\\''");
+      writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+
+      app.setStatusMessage(`${issue.identifier} claimed and sent to agent`);
+      app.render();
+      setTimeout(() => app.resetStatus(), 3000);
+    } catch (err: any) {
+      app.setStatusMessage(`Error: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
     }
   });
 

@@ -38,3 +38,12 @@
 - Created `src/__tests__/linear-client.test.ts`: 11 unit tests covering empty state, rendering, selection highlighting, priority labels, label display, title truncation, and issue count footer
 - Authentication: uses `LINEAR_API_KEY` environment variable with `Authorization` header to `https://api.linear.app/graphql`
 - Verified: typecheck passes, 308/309 tests pass (1 pre-existing integration test failure unrelated to this change)
+
+## Add Linear task claiming with agent dispatch
+
+- Added `startIssue()` to `src/linear-client.ts`: GraphQL mutation that queries the issue's team workflow states, finds the "started" (In Progress) state, and updates the issue via `issueUpdate` mutation; clears cache after update
+- Updated `src/tui.ts`: `j/k` in Linear overlay now moves `linearSelectedIndex` (with re-render) instead of just scrolling; added `Enter` keybinding to claim selected task; stored `linearIssues` array for handler access; exposed `setLinearIssues()` and `getLinearSelectedIndex()` methods; updated status bar and help dialog text
+- Added `linear-claim` handler in `src/index.ts`: sets Linear issue to In Progress via `startIssue()`, creates a new VM, provisions it, labels it with the issue identifier, attaches console, and sends `claude -p` with the task title, description, and Linear branch name so PRs auto-link
+- Added `linear-rerender` handler in `src/index.ts`: re-renders the Linear overlay with updated `selectedIndex` when j/k navigation changes selection
+- Updated `linear-open` and `linear-refresh` handlers to call `app.setLinearIssues()` for issue data access
+- Verified: typecheck passes, 307/309 tests pass (2 pre-existing integration test failures unrelated to this change)

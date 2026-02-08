@@ -85,6 +85,80 @@ const PRIORITY_LABELS: Record<number, string> = {
   4: '{gray-fg}Low{/gray-fg}',
 };
 
+export async function startIssue(issueId: string): Promise<void> {
+  const apiKey = process.env.LINEAR_API_KEY;
+  if (!apiKey) {
+    throw new Error('LINEAR_API_KEY environment variable is not set');
+  }
+
+  // First, find the "In Progress" state for this issue's team
+  const stateQuery = `query($issueId: String!) {
+    issue(id: $issueId) {
+      team {
+        states {
+          nodes {
+            id
+            name
+            type
+          }
+        }
+      }
+    }
+  }`;
+
+  const stateResp = await fetch('https://api.linear.app/graphql', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+    },
+    body: JSON.stringify({ query: stateQuery, variables: { issueId } }),
+  });
+
+  if (!stateResp.ok) {
+    throw new Error(`Linear API error: ${stateResp.status} ${stateResp.statusText}`);
+  }
+
+  const stateJson = await stateResp.json() as any;
+  if (stateJson.errors?.length) {
+    throw new Error(`Linear API: ${stateJson.errors[0].message}`);
+  }
+
+  const states = stateJson.data.issue.team.states.nodes as { id: string; name: string; type: string }[];
+  const inProgressState = states.find(s => s.type === 'started') ?? states.find(s => s.name.toLowerCase().includes('progress'));
+  if (!inProgressState) {
+    throw new Error('Could not find an "In Progress" workflow state');
+  }
+
+  // Update the issue state
+  const mutation = `mutation($issueId: String!, $stateId: String!) {
+    issueUpdate(id: $issueId, input: { stateId: $stateId }) {
+      success
+    }
+  }`;
+
+  const resp = await fetch('https://api.linear.app/graphql', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': apiKey,
+    },
+    body: JSON.stringify({ query: mutation, variables: { issueId, stateId: inProgressState.id } }),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`Linear API error: ${resp.status} ${resp.statusText}`);
+  }
+
+  const json = await resp.json() as any;
+  if (json.errors?.length) {
+    throw new Error(`Linear API: ${json.errors[0].message}`);
+  }
+
+  // Clear cache since state changed
+  clearLinearCache();
+}
+
 export function renderLinearIssues(issues: LinearIssue[], selectedIndex: number, width: number): string[] {
   if (issues.length === 0) {
     return [
