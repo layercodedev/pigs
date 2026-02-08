@@ -459,7 +459,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
-      '  L (shift)     View Linear tasks (Enter to claim & send to agent)',
+      '  L (shift)     View Linear tasks (Space:select  Enter:claim)',
       '  g             View PR chain for selected VM\'s repo',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
@@ -747,6 +747,7 @@ export function createApp() {
 
   let linearSelectedIndex = 0;
   let linearIssues: import('./linear-client.ts').LinearIssue[] = [];
+  let linearCheckedIds: Set<string> = new Set();
 
   // Queue viewer overlay (hidden by default)
   const queueViewerOverlay = blessed.box({
@@ -1117,10 +1118,30 @@ export function createApp() {
     }
   });
 
-  screen.key(['enter'], () => {
+  screen.key(['space'], () => {
     if (state.mode === 'linear') {
       if (linearIssues.length > 0 && linearIssues[linearSelectedIndex]) {
-        handlers['linear-claim']?.(linearIssues[linearSelectedIndex]);
+        const id = linearIssues[linearSelectedIndex].id;
+        if (linearCheckedIds.has(id)) {
+          linearCheckedIds.delete(id);
+        } else {
+          linearCheckedIds.add(id);
+        }
+        handlers['linear-rerender']?.();
+      }
+      return;
+    }
+  });
+
+  screen.key(['enter'], () => {
+    if (state.mode === 'linear') {
+      if (linearIssues.length === 0) return;
+      // If any checked, claim all checked; otherwise claim the cursor issue
+      const selected = linearCheckedIds.size > 0
+        ? linearIssues.filter(i => linearCheckedIds.has(i.id))
+        : linearIssues[linearSelectedIndex] ? [linearIssues[linearSelectedIndex]] : [];
+      if (selected.length > 0) {
+        handlers['linear-claim']?.(selected);
         hideLinear();
       }
       return;
@@ -1714,11 +1735,12 @@ export function createApp() {
   function showLinear() {
     state.mode = 'linear';
     linearSelectedIndex = 0;
+    linearCheckedIds = new Set();
     linearOverlay.setContent('\n  {yellow-fg}Fetching Linear tasks...{/yellow-fg}');
     linearOverlay.setLabel(' Linear Tasks ');
     linearOverlay.show();
     linearOverlay.focus();
-    statusBar.setContent(' Enter:claim task  L:close  r:refresh  j/k:navigate  Escape:close');
+    statusBar.setContent(' Space:select  Enter:claim selected  L:close  r:refresh  j/k:navigate  Escape:close');
     screen.render();
     handlers['linear-open']?.();
   }
@@ -2098,6 +2120,9 @@ export function createApp() {
     },
     getLinearSelectedIndex() {
       return linearSelectedIndex;
+    },
+    getLinearCheckedIds() {
+      return linearCheckedIds;
     },
     resetStatus() {
       if (state.mode === 'console') {

@@ -159,7 +159,7 @@ export async function startIssue(issueId: string): Promise<void> {
   clearLinearCache();
 }
 
-export function renderLinearIssues(issues: LinearIssue[], selectedIndex: number, width: number): string[] {
+export function renderLinearIssues(issues: LinearIssue[], selectedIndex: number, width: number, checkedIds?: Set<string>): string[] {
   if (issues.length === 0) {
     return [
       '',
@@ -171,10 +171,12 @@ export function renderLinearIssues(issues: LinearIssue[], selectedIndex: number,
 
   const lines: string[] = [''];
   issues.forEach((issue, i) => {
-    const isSelected = i === selectedIndex;
-    const marker = isSelected ? '{yellow-fg}>{/yellow-fg}' : ' ';
-    const highlight = isSelected ? '{bold}' : '';
-    const highlightEnd = isSelected ? '{/bold}' : '';
+    const isCursor = i === selectedIndex;
+    const isChecked = checkedIds?.has(issue.id) ?? false;
+    const cursor = isCursor ? '{yellow-fg}>{/yellow-fg}' : ' ';
+    const checkbox = isChecked ? '{green-fg}[x]{/green-fg}' : '[ ]';
+    const highlight = isCursor ? '{bold}' : '';
+    const highlightEnd = isCursor ? '{/bold}' : '';
 
     const priority = PRIORITY_LABELS[issue.priority] ?? '';
     const priorityStr = priority ? ` ${priority}` : '';
@@ -182,14 +184,16 @@ export function renderLinearIssues(issues: LinearIssue[], selectedIndex: number,
     const labelNames = issue.labels.nodes.map(l => l.name);
     const labelsStr = labelNames.length > 0 ? ` {magenta-fg}${labelNames.join(', ')}{/magenta-fg}` : '';
 
-    const maxTitleLen = width - 30;
+    const maxTitleLen = width - 34;
     const truncTitle = issue.title.length > maxTitleLen ? issue.title.slice(0, maxTitleLen - 3) + '...' : issue.title;
 
-    lines.push(`  ${marker} ${highlight}{cyan-fg}${issue.identifier}{/cyan-fg} ${truncTitle}${highlightEnd}${stateStr}${priorityStr}${labelsStr}`);
+    lines.push(`  ${cursor} ${checkbox} ${highlight}{cyan-fg}${issue.identifier}{/cyan-fg} ${truncTitle}${highlightEnd}${stateStr}${priorityStr}${labelsStr}`);
   });
 
   lines.push('');
-  lines.push(`  {gray-fg}${issues.length} issue${issues.length !== 1 ? 's' : ''}{/gray-fg}`);
+  const checkedCount = checkedIds?.size ?? 0;
+  const checkedLabel = checkedCount > 0 ? `  {yellow-fg}${checkedCount} selected{/yellow-fg}  ` : '';
+  lines.push(`  ${checkedLabel}{gray-fg}${issues.length} issue${issues.length !== 1 ? 's' : ''}{/gray-fg}`);
 
   return lines;
 }

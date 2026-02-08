@@ -115,4 +115,41 @@ describe('renderLinearIssues', () => {
     // Should not contain the full title
     expect(issueLine).not.toContain(longTitle);
   });
+
+  it('should show unchecked checkbox by default', () => {
+    const issues = [makeIssue({ identifier: 'ENG-1', title: 'Test' })];
+    const lines = renderLinearIssues(issues, 0, 80);
+    const issueLine = lines.find(l => l.includes('ENG-1'))!;
+    expect(issueLine).toContain('[ ]');
+  });
+
+  it('should show checked checkbox for checked issues', () => {
+    const issues = [
+      makeIssue({ identifier: 'ENG-1', title: 'First', id: 'id-1' }),
+      makeIssue({ identifier: 'ENG-2', title: 'Second', id: 'id-2' }),
+    ];
+    const checkedIds = new Set(['id-1']);
+    const lines = renderLinearIssues(issues, 0, 80, checkedIds);
+    const firstLine = lines.find(l => l.includes('ENG-1'))!;
+    const secondLine = lines.find(l => l.includes('ENG-2'))!;
+    expect(firstLine).toContain('[x]');
+    expect(secondLine).toContain('[ ]');
+  });
+
+  it('should show selected count in footer when issues are checked', () => {
+    const issues = [
+      makeIssue({ identifier: 'ENG-1', title: 'First', id: 'id-1' }),
+      makeIssue({ identifier: 'ENG-2', title: 'Second', id: 'id-2' }),
+      makeIssue({ identifier: 'ENG-3', title: 'Third', id: 'id-3' }),
+    ];
+    const checkedIds = new Set(['id-1', 'id-3']);
+    const lines = renderLinearIssues(issues, 0, 80, checkedIds);
+    expect(lines.some(l => l.includes('2 selected'))).toBe(true);
+  });
+
+  it('should not show selected count when no issues are checked', () => {
+    const issues = [makeIssue({ identifier: 'ENG-1', title: 'Test' })];
+    const lines = renderLinearIssues(issues, 0, 80, new Set());
+    expect(lines.some(l => l.includes('selected'))).toBe(false);
+  });
 });

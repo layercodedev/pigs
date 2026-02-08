@@ -47,3 +47,11 @@
 - Added `linear-rerender` handler in `src/index.ts`: re-renders the Linear overlay with updated `selectedIndex` when j/k navigation changes selection
 - Updated `linear-open` and `linear-refresh` handlers to call `app.setLinearIssues()` for issue data access
 - Verified: typecheck passes, 307/309 tests pass (2 pre-existing integration test failures unrelated to this change)
+
+## Add Linear multi-select with parallel agent dispatch
+
+- Updated `src/linear-client.ts`: `renderLinearIssues()` now accepts optional `checkedIds: Set<string>` parameter, renders `[x]`/`[ ]` checkboxes per issue, and shows "N selected" count in footer when issues are checked
+- Updated `src/tui.ts`: added `linearCheckedIds` Set to track multi-selected issues; added `Space` keybinding in Linear overlay to toggle selection; updated `Enter` to claim all checked issues (or cursor issue if none checked); exposed `getLinearCheckedIds()` method; updated status bar and help dialog text
+- Updated `src/index.ts`: refactored `linear-claim` handler to accept an array of `LinearIssue[]` instead of a single issue; dispatches all claims in parallel via `Promise.all` (each creates a VM, provisions it, sets Linear status to In Progress, and sends the task prompt); updated `linear-open`, `linear-refresh`, and `linear-rerender` handlers to pass `checkedIds` for rendering
+- Added 4 new tests in `src/__tests__/linear-client.test.ts`: unchecked checkbox display, checked checkbox display, selected count in footer, no selected count when empty
+- Verified: typecheck passes, all 313 tests pass with 0 failures
