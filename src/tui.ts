@@ -224,9 +224,8 @@ export function createApp() {
     style: { fg: 'gray' },
   });
 
-  // Terminal output area inside main view (for console sessions)
-  // Using blessed.terminal for proper terminal emulation (handles escape sequences, cursor, etc.)
-  const terminal = blessed.terminal({
+  // Preview text area inside main view (for showing captured output from tmux windows)
+  const previewBox = blessed.box({
     parent: mainView,
     top: 0,
     left: 0,
@@ -241,26 +240,7 @@ export function createApp() {
     keys: true,
     tags: false,
     hidden: true,
-    cursor: 'block',
-    terminal: 'xterm-256color',
-    // Handler to forward user input to the VM
-    handler: (data: Buffer) => {
-      if (state.mode !== 'console') return;
-      
-      const str = data.toString();
-      
-      // F10 key detaches from console (xterm F10 sequence: \x1b[21~)
-      if (str === '\x1b[21~') {
-        state.mode = 'normal';
-        statusBar.setContent(normalStatusText);
-        render();
-        handlers['console-detach']?.();
-        return;
-      }
-      
-      // Forward all other input to VM (including Escape, Ctrl+C, arrows, backspace, etc.)
-      handlers['console-input']?.(str);
-    },
+    content: '',
   });
 
   // Pending action display (shown at top of main view when action in progress)
@@ -488,8 +468,7 @@ export function createApp() {
       '  j / ↓         Move selection down',
       '  k / ↑         Move selection up',
       '  a             Jump to next VM needing attention',
-      '  Enter         Attach console to selected VM',
-      '  Escape        Detach from console',
+      '  Enter         Attach to selected VM (opens tmux window)',
       '',
       '  {bold}VM Management{/bold}',
       '  c             Create a new agent VM',
@@ -508,7 +487,7 @@ export function createApp() {
       '  b             Broadcast prompt to all VMs',
       '  Q (shift)     Queue prompt for selected VM (auto-sends)',
       '  B (shift)     Queue prompt to ALL VMs (broadcast queue)',
-      '  x             Stop/cancel running agent (sends Ctrl-C)',
+      '  x             Stop/cancel running agent (kills tmux window)',
       '  o             Export VM console log to ~/.pigs/logs/',
       '  v             View/manage prompt queue for selected VM',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
@@ -862,8 +841,7 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  L:linear  i:dashboard  s:sort  /:search  ?:help  q:quit';
-  const consoleStatusText = ' F10:detach  (input forwarded to VM)';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  Enter:attach  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  L:linear  i:dashboard  s:sort  /:search  ?:help  q:quit';
 
   function getFilteredVMs(): VM[] {
     return sortVMs(filterVMs(state.vms, state.searchFilter), state.sortMode);
@@ -937,52 +915,45 @@ export function createApp() {
   }
 
   function renderMainView() {
-    if (state.mode === 'console' && state.activeVmIndex >= 0 && state.vms[state.activeVmIndex]) {
-      const vm = state.vms[state.activeVmIndex];
-      mainView.setLabel(` Console: ${vm.displayLabel ?? vm.name} (attached) `);
-      mainView.style.border = { fg: 'yellow' };
-      noVmMessage.hide();
-      terminal.show();
-      updatePendingAndErrorDisplay(vm);
-    } else if (state.sidebarSelectedIndex >= 0 && state.vms[state.sidebarSelectedIndex]) {
+    if (state.sidebarSelectedIndex >= 0 && state.vms[state.sidebarSelectedIndex]) {
       const vm = state.vms[state.sidebarSelectedIndex];
       mainView.setLabel(` Preview: ${vm.displayLabel ?? vm.name} `);
       mainView.style.border = { fg: 'green' };
       noVmMessage.hide();
-      terminal.show();
+      previewBox.show();
       updatePendingAndErrorDisplay(vm);
     } else {
       mainView.setLabel(' Console ');
       mainView.style.border = { fg: 'green' };
       noVmMessage.show();
-      terminal.hide();
+      previewBox.hide();
       pendingActionDisplay.hide();
       errorDisplay.hide();
-      terminal.top = 0;
+      previewBox.top = 0;
     }
     screen.render();
   }
 
   function updatePendingAndErrorDisplay(vm: VM) {
     if (vm.lastError) {
-      // Error takes priority — show error, hide pending, push terminal down
+      // Error takes priority — show error, hide pending, push preview down
       const errorLines = vm.lastError.split('\n').slice(0, 2);
       const truncated = errorLines.join('\n') + (vm.lastError.split('\n').length > 2 ? '...' : '');
       errorDisplay.setContent(`{red-fg}{bold}Error:{/bold}{/red-fg} ${truncated}\n{gray-fg}Press E to copy full error to clipboard{/gray-fg}`);
       errorDisplay.show();
       pendingActionDisplay.hide();
-      terminal.top = 3;
+      previewBox.top = 3;
     } else if (vm.pendingAction) {
-      // Pending action — show pending, hide error, push terminal down
+      // Pending action — show pending, hide error, push preview down
       pendingActionDisplay.setContent(`{yellow-fg}⏳ ${vm.pendingAction}{/yellow-fg}`);
       pendingActionDisplay.show();
       errorDisplay.hide();
-      terminal.top = 1;
+      previewBox.top = 1;
     } else {
-      // Nothing to show — hide both, restore terminal position
+      // Nothing to show — hide both, restore preview position
       pendingActionDisplay.hide();
       errorDisplay.hide();
-      terminal.top = 0;
+      previewBox.top = 0;
     }
   }
 
@@ -1048,7 +1019,7 @@ export function createApp() {
 
   // Note: Console mode input is now handled by blessed.terminal's handler option
   // This provides proper terminal emulation including support for escape sequences,
-  // arrow keys, backspace, Ctrl+C, etc. F10 is used to detach from console mode.
+  // arrow keys, backspace, Ctrl+C, etc.
 
   let quitting = false;
 
@@ -1097,8 +1068,8 @@ export function createApp() {
       hideLinear();
       return;
     }
-    if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue' || state.mode === 'ralph-iterations' || state.mode === 'ralph-prompt') {
-      // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
+    if (state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue' || state.mode === 'ralph-iterations' || state.mode === 'ralph-prompt') {
+      // In prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
     }
     gracefulQuit();
@@ -1117,7 +1088,7 @@ export function createApp() {
       hideConfirmReprovisionAll();
       return;
     }
-    // Ctrl-C always quits, even from console mode
+    // Ctrl-C always quits
     gracefulQuit();
   });
 
@@ -1465,7 +1436,6 @@ export function createApp() {
   });
 
   screen.key(['?'], () => {
-    if (state.mode === 'console') return;
     if (state.mode === 'help') {
       hideHelp();
       return;
@@ -1495,76 +1465,23 @@ export function createApp() {
     if (state.mode === 'queue-viewer') {
       hideQueueViewer();
     }
-    if (state.mode === 'connecting') {
-      state.mode = 'normal';
-      // Clear pending action on the VM being connected
-      const vm = state.vms[state.sidebarSelectedIndex];
-      if (vm) {
-        vm.pendingAction = undefined;
-      }
-      statusBar.setContent(normalStatusText);
-      render();
-      return;
-    }
     if (state.mode === 'normal' && state.searchFilter) {
       clearSearch();
     }
   });
 
-  // Handle screen resize for console sessions
+  // Handle screen resize
   screen.on('resize', () => {
-    const cols = (mainView.width as number) - 2; // subtract border
-    const rows = (mainView.height as number) - 2;
-    handlers['console-resize']?.(cols, rows);
+    render();
   });
 
   /**
-   * Get the dimensions of the terminal area (inside borders).
+   * Get the dimensions of the main view area (inside borders).
    */
   function getTerminalSize(): { cols: number; rows: number } {
     const cols = (mainView.width as number) - 2;
     const rows = (mainView.height as number) - 2;
     return { cols: Math.max(cols, 1), rows: Math.max(rows, 1) };
-  }
-
-  /**
-   * Write output data to the terminal display.
-   */
-  function writeToTerminal(data: string) {
-    // blessed.terminal handles escape sequences properly via its term.js integration
-    terminal.write(data);
-    screen.render();
-  }
-
-  /**
-   * Clear the terminal display.
-   */
-  function clearTerminal() {
-    // Send clear screen escape sequence
-    terminal.write('\x1b[2J\x1b[H');
-    screen.render();
-  }
-
-  /**
-   * Restore terminal display from an array of buffered output lines.
-   */
-  function restoreTerminal(lines: string[]) {
-    // Clear first, then write all lines
-    terminal.write('\x1b[2J\x1b[H');
-    if (lines.length > 0) {
-      terminal.write(lines.join('\n') + '\n');
-    }
-    screen.render();
-  }
-
-  /**
-   * Enter console mode for the active VM.
-   */
-  function enterConsoleMode() {
-    state.mode = 'console';
-    statusBar.setContent(consoleStatusText);
-    terminal.focus();
-    render();
   }
 
   function showPromptInput(vm: VM) {
@@ -2200,15 +2117,11 @@ export function createApp() {
   });
 
   /**
-   * Show a read-only preview of buffered output lines in the terminal view.
+   * Show a read-only preview of output lines in the preview box.
    */
   function showPreview(lines: string[]) {
-    // Clear terminal and write preview content
-    terminal.write('\x1b[2J\x1b[H');
-    if (lines.length > 0) {
-      // Write lines to terminal (blessed.terminal handles ANSI codes properly)
-      terminal.write(lines.join('\n') + '\n');
-    }
+    previewBox.setContent(stripAnsi(lines.join('\n')));
+    previewBox.setScrollPerc(100);
     screen.render();
   }
 
@@ -2221,11 +2134,7 @@ export function createApp() {
     render,
     onKey,
     getTerminalSize,
-    writeToTerminal,
-    clearTerminal,
-    restoreTerminal,
     showPreview,
-    enterConsoleMode,
     setStatusMessage(msg: string) {
       statusBar.setContent(` ${msg}`);
       screen.render();
@@ -2262,11 +2171,7 @@ export function createApp() {
       return linearCheckedIds;
     },
     resetStatus() {
-      if (state.mode === 'console') {
-        statusBar.setContent(consoleStatusText);
-      } else {
-        statusBar.setContent(normalStatusText);
-      }
+      statusBar.setContent(normalStatusText);
       screen.render();
     },
     getSelectedVMError(): string | undefined {

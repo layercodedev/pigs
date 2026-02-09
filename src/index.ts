@@ -3,14 +3,8 @@
 import { createApp } from './tui.ts';
 import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.ts';
 import {
-  attachConsole,
-  detachConsole,
   destroyConsole,
-  cleanupLocalSession,
-  resizeConsole,
-  writeToConsole,
   detachAll,
-  getSession,
 } from './console-session.ts';
 import { loadSettings, provisionVM, reprovisionVM } from './provisioner.ts';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.ts';
@@ -22,10 +16,37 @@ import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueu
 import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
 import { fetchMyIssues, renderLinearIssues, clearLinearCache, startIssue } from './linear-client.ts';
 import type { LinearIssue } from './linear-client.ts';
+import {
+  insideTmux,
+  sessionExists,
+  createSession,
+  attachSession,
+  createWindow,
+  switchToWindow,
+  switchToControlPane,
+  killWindow,
+  listWindows,
+  capturePane,
+  renameWindow as tmuxRenameWindow,
+  getSessionName,
+} from './tmux.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
+  // Ensure we're inside a tmux session.
+  // If not, create one and attach to it (replaces current process).
+  if (!insideTmux()) {
+    const name = getSessionName();
+    if (!sessionExists(name)) {
+      createSession(name);
+    }
+    attachSession(name);
+    // attachSession replaces the process, so we should not reach here.
+    // If we do, it means attach failed.
+    process.exit(1);
+  }
+
   let client: SpritesClient;
   try {
     client = createSpritesClient();
@@ -66,13 +87,18 @@ async function main() {
   if (state.vms.length > 0) {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (vm) {
-      app.showPreview(getOutput(vm.name));
+      const captured = capturePane(vm.name);
+      if (captured) {
+        app.showPreview(captured.split('\n'));
+      } else {
+        app.showPreview(getOutput(vm.name));
+      }
     }
   }
 
   /**
    * Process prompt queues: when a VM finishes a task and has queued prompts,
-   * automatically send the next prompt.
+   * automatically send the next prompt via a tmux window.
    */
   async function processQueues() {
     for (const vm of state.vms) {
@@ -83,21 +109,14 @@ async function main() {
         // Clear attention — we're sending the next task
         clearAttention(vm);
 
-        try {
-          const { cols, rows } = app.getTerminalSize();
-          await attachConsole(client, vm.name, cols, rows);
-          clearOutput(vm.name);
-          connectSessionOutput(vm.name);
-          vm.taskStartedAt = Date.now();
-          const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
-          writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
-          app.setStatusMessage(`Auto-sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
-          app.render();
-          setTimeout(() => app.resetStatus(), 3000);
-        } catch (err: any) {
-          app.setStatusMessage(`Queue auto-send failed for ${vm.displayLabel ?? vm.name}: ${err.message}`);
-          setTimeout(() => app.resetStatus(), 3000);
-        }
+        vm.taskStartedAt = Date.now();
+        const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
+        const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+        killWindow(vm.name);
+        createWindow(vm.name, command);
+        app.setStatusMessage(`Auto-sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
+        app.render();
+        setTimeout(() => app.resetStatus(), 3000);
       }
     }
   }
@@ -108,153 +127,47 @@ async function main() {
     processQueues();
   });
 
-  /**
-   * Connect stdout/stderr from a console session to the terminal display.
-   * Idempotent — only adds listeners once per VM.
-   */
-  const connectedVMs = new Set<string>();
-  function connectSessionOutput(vmName: string) {
-    if (connectedVMs.has(vmName)) return;
-    connectedVMs.add(vmName);
-    const session = getSession(vmName);
-    if (!session) return;
 
-    session.command.stdout.on('data', (chunk: Buffer) => {
-      const data = chunk.toString();
-      appendOutput(vmName, data);
-      if (state.mode === 'console') {
-        // In console mode, write to terminal if this is the active VM
-        const activeVm = state.vms[state.activeVmIndex];
-        if (activeVm && activeVm.name === vmName) {
-          app.writeToTerminal(data);
-        }
-      } else if (state.mode === 'dashboard') {
-        app.renderDashboard();
-      } else {
-        // In normal mode, update preview if this is the selected VM
-        const selectedVm = state.vms[state.sidebarSelectedIndex];
-        if (selectedVm && selectedVm.name === vmName) {
-          app.showPreview(getOutput(vmName));
-        }
-      }
-    });
-
-    session.command.stderr.on('data', (chunk: Buffer) => {
-      const data = chunk.toString();
-      appendOutput(vmName, data);
-      if (state.mode === 'console') {
-        const activeVm = state.vms[state.activeVmIndex];
-        if (activeVm && activeVm.name === vmName) {
-          app.writeToTerminal(data);
-        }
-      } else if (state.mode === 'dashboard') {
-        app.renderDashboard();
-      } else {
-        const selectedVm = state.vms[state.sidebarSelectedIndex];
-        if (selectedVm && selectedVm.name === vmName) {
-          app.showPreview(getOutput(vmName));
-        }
-      }
-    });
-
-    session.command.on('exit', () => {
-      // Clean up local connection but preserve remote session ID for reattach
-      cleanupLocalSession(vmName);
-      connectedVMs.delete(vmName);
-
-      if (state.mode === 'console') {
-        const activeVm = state.vms[state.activeVmIndex];
-        if (activeVm && activeVm.name === vmName) {
-          state.mode = 'normal';
-          app.setStatusMessage(`Console session ended for ${vmName}`);
-          app.render();
-          setTimeout(() => app.resetStatus(), 3000);
-        }
-      }
-    });
-  }
-
-  // Selection changed handler - show preview of selected VM's output buffer
+  // Selection changed handler - show preview of selected VM's captured output
   app.onKey('selection-changed', () => {
     if (state.mode !== 'normal') return;
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
-    const lines = getOutput(vm.name);
-    app.showPreview(lines);
+    // Capture current pane output from tmux window if it exists
+    const captured = capturePane(vm.name);
+    if (captured) {
+      app.showPreview(captured.split('\n'));
+    } else {
+      app.showPreview(getOutput(vm.name));
+    }
   });
 
-  // Activate VM handler - attach console session
+  /**
+   * Open a tmux window for a VM running a sprite command.
+   * If a window for this VM already exists, just switch to it.
+   */
+  function openVmWindow(vmName: string, command: string) {
+    const windowName = vmName;
+    const existingWindows = listWindows();
+    if (existingWindows.includes(windowName)) {
+      switchToWindow(windowName);
+    } else {
+      createWindow(windowName, command);
+      switchToWindow(windowName);
+    }
+  }
+
+  // Activate VM handler - open tmux window with sprite console
   app.onKey('activate', async () => {
     const vm = state.vms[state.activeVmIndex];
     if (!vm) return;
 
-    // Lock to this VM while connecting — prevents navigation
-    state.mode = 'connecting';
-
     // Clear attention indicator when user activates this VM
     clearAttention(vm);
-
-    app.setStatusMessage(`Connecting to ${vm.name}... (Escape to cancel)`);
-    vm.pendingAction = 'connecting...';
-    vm.lastError = undefined;
     app.render();
-    try {
-      const { cols, rows } = app.getTerminalSize();
-      await attachConsole(client, vm.name, cols, rows);
 
-      // Check if user cancelled during the await
-      if (state.mode !== 'connecting') {
-        vm.pendingAction = undefined;
-        app.render();
-        return;
-      }
-
-      vm.pendingAction = undefined;
-      connectSessionOutput(vm.name);
-      // Restore buffered output for this VM
-      const buffered = getOutput(vm.name);
-      if (buffered.length > 0) {
-        app.restoreTerminal(buffered);
-      } else {
-        app.clearTerminal();
-      }
-      app.enterConsoleMode();
-    } catch (err: any) {
-      vm.pendingAction = undefined;
-      if (state.mode === 'connecting') {
-        state.mode = 'normal';
-        vm.lastError = err.message || String(err);
-        app.setStatusMessage(`Error connecting: ${err.message}`);
-        setTimeout(() => app.resetStatus(), 3000);
-      }
-    }
-    app.render();
-  });
-
-  // Console input handler - forward keystrokes to VM stdin
-  app.onKey('console-input', (data: string) => {
-    const vm = state.vms[state.activeVmIndex];
-    if (vm) {
-      writeToConsole(vm.name, data);
-    }
-  });
-
-  // Console detach handler
-  app.onKey('console-detach', () => {
-    const vm = state.vms[state.activeVmIndex];
-    if (vm) {
-      detachConsole(vm.name);
-      app.setStatusMessage(`Detached from ${vm.name}`);
-      setTimeout(() => app.resetStatus(), 2000);
-    }
-  });
-
-  // Console resize handler
-  app.onKey('console-resize', (cols: number, rows: number) => {
-    const vm = state.vms[state.activeVmIndex];
-    if (vm) {
-      resizeConsole(vm.name, cols, rows);
-    }
+    // Open a tmux window running sprite exec -tty bash on this VM
+    openVmWindow(vm.name, `sprite -s ${vm.name} exec -tty bash`);
   });
 
   // Create VM handler
@@ -384,6 +297,7 @@ async function main() {
       if (isMounted(vm.name)) {
         await unmountVM(vm.name);
       }
+      killWindow(vm.name);
       destroyConsole(vm.name);
       clearOutput(vm.name);
       clearQueue(vm.name);
@@ -425,6 +339,7 @@ async function main() {
           await unmountVM(vm.name);
           vm.mountPath = undefined;
         }
+        killWindow(vm.name);
         destroyConsole(vm.name);
         clearOutput(vm.name);
         clearQueue(vm.name);
@@ -540,30 +455,14 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Stop/cancel running agent handler - send Ctrl-C to the VM's console
+  // Stop/cancel running agent handler - kill the tmux window for this VM
   app.onKey('stop-agent', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
-    // Must have an active console session to send Ctrl-C
-    const session = getSession(vm.name);
-    if (!session?.started) {
-      // Try to attach first so we can send Ctrl-C
-      try {
-        const { cols, rows } = app.getTerminalSize();
-        await attachConsole(client, vm.name, cols, rows);
-        connectSessionOutput(vm.name);
-      } catch (err: any) {
-        app.setStatusMessage(`Cannot stop ${vm.displayLabel ?? vm.name}: ${err.message}`);
-        setTimeout(() => app.resetStatus(), 3000);
-        return;
-      }
-    }
-
-    // Send Ctrl-C (ETX character) to interrupt the running process
-    writeToConsole(vm.name, '\x03');
+    killWindow(vm.name);
     vm.taskStartedAt = undefined;
-    app.setStatusMessage(`Sent stop signal to ${vm.displayLabel ?? vm.name}`);
+    app.setStatusMessage(`Stopped ${vm.displayLabel ?? vm.name}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
@@ -731,20 +630,17 @@ async function main() {
         return;
       }
 
-      // Send rebase prompt to the agent
-      const { cols, rows } = app.getTerminalSize();
-      await attachConsole(client, vm.name, cols, rows);
+      // Send rebase prompt to the agent via tmux window
       state.activeVmIndex = state.sidebarSelectedIndex;
-      clearOutput(vm.name);
-      app.clearTerminal();
-      connectSessionOutput(vm.name);
       vm.taskStartedAt = Date.now();
+      app.render();
 
       const rebasePrompt = `Your PR #${currentPR.number} (branch "${currentBranch}") targets "${currentPR.baseRefName}" which has been merged into ${defaultBranch}. Please: 1) git fetch origin, 2) retarget your PR to ${defaultBranch} with \`gh pr edit ${currentPR.number} --base ${defaultBranch}\`, 3) rebase your branch onto origin/${defaultBranch}, 4) resolve any conflicts, 5) force-push with \`git push --force-with-lease\`.`;
       const escapedPrompt = rebasePrompt.replace(/'/g, "'\\''");
-      writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
-
-      app.enterConsoleMode();
+      const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+      killWindow(vm.name);
+      createWindow(vm.name, command);
+      switchToWindow(vm.name);
     } catch (err: any) {
       app.setStatusMessage(`Sync failed: ${err.message}`);
       setTimeout(() => app.resetStatus(), 3000);
@@ -841,17 +737,15 @@ async function main() {
           return { ok: false, identifier: issue.identifier };
         }
 
-        // Send the task as a prompt using the Linear branch name
-        const { cols, rows } = app.getTerminalSize();
-        await attachConsole(client, vm.name, cols, rows);
-        clearOutput(vm.name);
-        connectSessionOutput(vm.name);
+        // Send the task as a prompt via tmux window using the Linear branch name
         vm.taskStartedAt = Date.now();
 
         const desc = issue.description ? `\n\nDescription:\n${issue.description}` : '';
         const prompt = `You are working on Linear issue ${issue.identifier}: "${issue.title}"${desc}\n\nIMPORTANT: Use the git branch name "${issue.branchName}" for your work so that PRs automatically link to this Linear issue. Create this branch with: git checkout -b ${issue.branchName}\n\nPlease implement this task.`;
         const escapedPrompt = prompt.replace(/'/g, "'\\''");
-        writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+        const spriteCmd = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+        killWindow(vm.name);
+        createWindow(vm.name, spriteCmd);
 
         app.render();
         return { ok: true, identifier: issue.identifier };
@@ -920,7 +814,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Prompt submit handler - run claude -p on the VM
+  // Prompt submit handler - run claude -p on the VM via tmux window
   app.onKey('prompt-submit', async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -933,29 +827,21 @@ async function main() {
       return;
     }
 
-    app.setStatusMessage(`Sending prompt to ${vm.displayLabel ?? vm.name}...`);
-    try {
-      const { cols, rows } = app.getTerminalSize();
-      await attachConsole(client, vm.name, cols, rows);
-      state.activeVmIndex = state.sidebarSelectedIndex;
-      // Clear buffer for fresh prompt output
-      clearOutput(vm.name);
-      app.clearTerminal();
-      connectSessionOutput(vm.name);
+    vm.taskStartedAt = Date.now();
+    state.activeVmIndex = state.sidebarSelectedIndex;
+    app.render();
 
-      // Send the claude command with the prompt
-      vm.taskStartedAt = Date.now();
-      const escapedPrompt = prompt.replace(/'/g, "'\\''");
-      writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+    // Build the sprite command to run claude with the prompt
+    const escapedPrompt = prompt.replace(/'/g, "'\\''");
+    const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
 
-      app.enterConsoleMode();
-    } catch (err: any) {
-      app.setStatusMessage(`Error: ${err.message}`);
-      setTimeout(() => app.resetStatus(), 3000);
-    }
+    // Kill existing window for this VM if any (fresh prompt = fresh window)
+    killWindow(vm.name);
+    createWindow(vm.name, command);
+    switchToWindow(vm.name);
   });
 
-  // Broadcast prompt handler - send claude -p to all provisioned VMs
+  // Broadcast prompt handler - send claude -p to all provisioned VMs via tmux windows
   app.onKey('broadcast-submit', async (prompt: string) => {
     await addToHistory(prompt);
 
@@ -969,27 +855,15 @@ async function main() {
     app.setStatusMessage(`Broadcasting prompt to ${targets.length} agent(s)...`);
 
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
-    const command = `claude -p '${escapedPrompt}'\n`;
-
-    let sent = 0;
-    let failed = 0;
 
     for (const vm of targets) {
-      try {
-        const { cols, rows } = app.getTerminalSize();
-        await attachConsole(client, vm.name, cols, rows);
-        clearOutput(vm.name);
-        connectSessionOutput(vm.name);
-        vm.taskStartedAt = Date.now();
-        writeToConsole(vm.name, command);
-        sent++;
-      } catch {
-        failed++;
-      }
+      vm.taskStartedAt = Date.now();
+      const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+      killWindow(vm.name);
+      createWindow(vm.name, command);
     }
 
-    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
-    app.setStatusMessage(`Broadcast sent to ${sent} agent(s)${failMsg}`);
+    app.setStatusMessage(`Broadcast sent to ${targets.length} agent(s)`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
@@ -1020,19 +894,13 @@ async function main() {
 
       if (vm.needsAttention) clearAttention(vm);
 
-      try {
-        const { cols, rows } = app.getTerminalSize();
-        await attachConsole(client, vm.name, cols, rows);
-        clearOutput(vm.name);
-        connectSessionOutput(vm.name);
-        vm.taskStartedAt = Date.now();
-        const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
-        writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
-        app.setStatusMessage(`Sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
-        app.render();
-      } catch (err: any) {
-        app.setStatusMessage(`Error sending queued prompt: ${err.message}`);
-      }
+      vm.taskStartedAt = Date.now();
+      const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
+      const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+      killWindow(vm.name);
+      createWindow(vm.name, command);
+      app.setStatusMessage(`Sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
+      app.render();
       setTimeout(() => app.resetStatus(), 3000);
     }
   });
@@ -1051,24 +919,17 @@ async function main() {
     let queued = 0;
     let sent = 0;
 
+    const escapedPrompt = prompt.replace(/'/g, "'\\''");
+
     for (const vm of targets) {
-      // If VM is idle, send immediately
+      // If VM is idle, send immediately via tmux window
       if (vm.needsAttention || !vm.taskStartedAt) {
         if (vm.needsAttention) clearAttention(vm);
-        try {
-          const { cols, rows } = app.getTerminalSize();
-          await attachConsole(client, vm.name, cols, rows);
-          clearOutput(vm.name);
-          connectSessionOutput(vm.name);
-          vm.taskStartedAt = Date.now();
-          const escapedPrompt = prompt.replace(/'/g, "'\\''");
-          writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
-          sent++;
-        } catch {
-          // If immediate send fails, enqueue instead
-          enqueue(vm.name, prompt);
-          queued++;
-        }
+        vm.taskStartedAt = Date.now();
+        const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+        killWindow(vm.name);
+        createWindow(vm.name, command);
+        sent++;
       } else {
         enqueue(vm.name, prompt);
         queued++;
@@ -1083,7 +944,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Ralph prompt handler - run iterative claude loop on the VM
+  // Ralph prompt handler - run iterative claude loop on the VM via tmux window
   app.onKey('ralph-submit', async (prompt: string, iterations: number) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -1097,43 +958,35 @@ async function main() {
     }
 
     app.setStatusMessage(`Starting Ralph on ${vm.displayLabel ?? vm.name} (${iterations} iterations)...`);
-    try {
-      const { cols, rows } = app.getTerminalSize();
-      await attachConsole(client, vm.name, cols, rows);
-      state.activeVmIndex = state.sidebarSelectedIndex;
-      clearOutput(vm.name);
-      app.clearTerminal();
-      connectSessionOutput(vm.name);
 
-      vm.taskStartedAt = Date.now();
+    vm.taskStartedAt = Date.now();
+    state.activeVmIndex = state.sidebarSelectedIndex;
+    app.render();
 
-      // Build the ralph loop as an inline bash script.
-      // Suppress intermediate done-signals so the monitor only fires once at the end.
-      const escapedPrompt = prompt.replace(/'/g, "'\\''");
-      const ralphScript = [
-        `rm -f /tmp/claude-done-signal`,
-        `for i in $(seq 1 ${iterations}); do`,
-        `  echo "=== Ralph iteration $i/${iterations} ==="`,
-        `  tmpfile=$(mktemp)`,
-        `  claude --dangerously-skip-permissions -p '${escapedPrompt}' 2>&1 | tee "$tmpfile"`,
-        `  rm -f /tmp/claude-done-signal`,
-        `  if grep -q '<promise>COMPLETE</promise>' "$tmpfile"; then`,
-        `    echo "Ralph complete after $i iterations."`,
-        `    rm -f "$tmpfile"`,
-        `    break`,
-        `  fi`,
-        `  rm -f "$tmpfile"`,
-        `done`,
-        `touch /tmp/claude-done-signal`,
-      ].join('\n');
+    // Build the ralph loop as an inline bash script.
+    const escapedPrompt = prompt.replace(/'/g, "'\\''");
+    const ralphScript = [
+      `rm -f /tmp/claude-done-signal`,
+      `for i in $(seq 1 ${iterations}); do`,
+      `  echo "=== Ralph iteration $i/${iterations} ==="`,
+      `  tmpfile=$(mktemp)`,
+      `  claude --dangerously-skip-permissions -p '${escapedPrompt}' 2>&1 | tee "$tmpfile"`,
+      `  rm -f /tmp/claude-done-signal`,
+      `  if grep -q '<promise>COMPLETE</promise>' "$tmpfile"; then`,
+      `    echo "Ralph complete after $i iterations."`,
+      `    rm -f "$tmpfile"`,
+      `    break`,
+      `  fi`,
+      `  rm -f "$tmpfile"`,
+      `done`,
+      `touch /tmp/claude-done-signal`,
+    ].join('; ');
 
-      writeToConsole(vm.name, ralphScript + '\n');
-
-      app.enterConsoleMode();
-    } catch (err: any) {
-      app.setStatusMessage(`Error: ${err.message}`);
-      setTimeout(() => app.resetStatus(), 3000);
-    }
+    // Run the ralph script inside a sprite exec -tty session
+    const command = `sprite -s ${vm.name} exec -tty bash -c '${ralphScript.replace(/'/g, "'\\''")}'`;
+    killWindow(vm.name);
+    createWindow(vm.name, command);
+    switchToWindow(vm.name);
   });
 
   // Unmount VM filesystem handler

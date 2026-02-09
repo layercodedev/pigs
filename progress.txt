@@ -55,3 +55,24 @@
 - Updated `src/index.ts`: refactored `linear-claim` handler to accept an array of `LinearIssue[]` instead of a single issue; dispatches all claims in parallel via `Promise.all` (each creates a VM, provisions it, sets Linear status to In Progress, and sends the task prompt); updated `linear-open`, `linear-refresh`, and `linear-rerender` handlers to pass `checkedIds` for rendering
 - Added 4 new tests in `src/__tests__/linear-client.test.ts`: unchecked checkbox display, checked checkbox display, selected count in footer, no selected count when empty
 - Verified: typecheck passes, all 313 tests pass with 0 failures
+
+## Rewrite pigs to be tmux-based
+
+- Created `src/tmux.ts`: tmux session management utility with functions for session lifecycle (`insideTmux`, `sessionExists`, `createSession`, `attachSession`), window management (`createWindow`, `switchToWindow`, `switchToControlPane`, `killWindow`, `listWindows`, `renameWindow`), pane interaction (`capturePane`, `sendKeys`, `sendCommand`), and helpers (`getActiveWindow`, `getSessionName`, `shellEscape`)
+- Updated `src/index.ts` entry point: on startup, checks if inside tmux; if not, creates a `pigs` tmux session and attaches (replaces process); the blessed TUI runs as window 0 (control pane)
+- Replaced `activate` handler: instead of WebSocket console + blessed.terminal, opens a tmux window running `sprite -s <vmname> exec -tty bash` and switches to it; reuses existing window if present
+- Replaced `prompt-submit` handler: creates a tmux window running `sprite -s <vmname> exec -tty claude -p '<prompt>'` instead of piping through WebSocket stdin
+- Replaced `broadcast-submit` handler: creates parallel tmux windows for all provisioned VMs, each running `sprite -s <vmname> exec -tty claude -p '<prompt>'`
+- Replaced `ralph-submit` handler: runs the iterative ralph loop inside a `sprite -s <vmname> exec -tty bash -c '...'` tmux window
+- Replaced `stop-agent` handler: kills the tmux window for the VM instead of sending Ctrl-C through WebSocket
+- Replaced `processQueues`: auto-sends queued prompts via tmux windows instead of WebSocket console
+- Replaced queue-submit, broadcast-queue-submit, PR chain sync, and linear-claim handlers: all use tmux windows with sprite CLI commands
+- Updated delete/delete-all handlers to kill associated tmux windows on VM deletion
+- Updated `selection-changed` handler to capture output from tmux panes via `capturePane` for preview
+- Removed `blessed.terminal` widget from `src/tui.ts`: replaced with a plain `blessed.box` (`previewBox`) for showing captured output
+- Removed `writeToTerminal`, `clearTerminal`, `restoreTerminal`, `enterConsoleMode` functions from tui.ts (no longer needed — tmux handles terminal emulation natively)
+- Removed `'console'` and `'connecting'` modes from `AppState.mode` in `src/types.ts` (attaching is now instant via tmux)
+- Removed unused console-session imports (`attachConsole`, `writeToConsole`, `resizeConsole`, `getSession`, `cleanupLocalSession`, `detachConsole`)
+- Updated `showPreview` to use `previewBox.setContent()` with ANSI stripping instead of `terminal.write()`
+- Updated help dialog, status bar text, and comments to reflect tmux-based workflow
+- Verified: no new typecheck errors (pre-existing provisioner.test.ts errors only), 283 tests pass with 0 new failures (5 pre-existing failures)
