@@ -18,7 +18,6 @@ import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.ts';
 import { loadHistory, addToHistory } from './prompt-history.ts';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
 import { exportLog } from './log-export.ts';
-import { copyToClipboard, Osc52Parser } from './clipboard.ts';
 import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.ts';
 import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
 import { fetchMyIssues, renderLinearIssues, clearLinearCache, startIssue } from './linear-client.ts';
@@ -114,23 +113,34 @@ async function main() {
    * Idempotent — only adds listeners once per VM.
    */
   const connectedVMs = new Set<string>();
-  const osc52Parsers = new Map<string, Osc52Parser>();
   function connectSessionOutput(vmName: string) {
     if (connectedVMs.has(vmName)) return;
     connectedVMs.add(vmName);
-    if (!osc52Parsers.has(vmName)) {
-      osc52Parsers.set(vmName, new Osc52Parser());
-    }
-    const parser = osc52Parsers.get(vmName)!;
     const session = getSession(vmName);
     if (!session) return;
 
-    function handleOutput(chunk: Buffer) {
-      const { cleanedData: data, clipboardTexts } = parser.process(chunk.toString());
-      for (const text of clipboardTexts) {
-        copyToClipboard(text);
+    session.command.stdout.on('data', (chunk: Buffer) => {
+      const data = chunk.toString();
+      appendOutput(vmName, data);
+      if (state.mode === 'console') {
+        // In console mode, write to terminal if this is the active VM
+        const activeVm = state.vms[state.activeVmIndex];
+        if (activeVm && activeVm.name === vmName) {
+          app.writeToTerminal(data);
+        }
+      } else if (state.mode === 'dashboard') {
+        app.renderDashboard();
+      } else {
+        // In normal mode, update preview if this is the selected VM
+        const selectedVm = state.vms[state.sidebarSelectedIndex];
+        if (selectedVm && selectedVm.name === vmName) {
+          app.showPreview(getOutput(vmName));
+        }
       }
-      if (data.length === 0) return;
+    });
+
+    session.command.stderr.on('data', (chunk: Buffer) => {
+      const data = chunk.toString();
       appendOutput(vmName, data);
       if (state.mode === 'console') {
         const activeVm = state.vms[state.activeVmIndex];
@@ -145,16 +155,12 @@ async function main() {
           app.showPreview(getOutput(vmName));
         }
       }
-    }
-
-    session.command.stdout.on('data', handleOutput);
-    session.command.stderr.on('data', handleOutput);
+    });
 
     session.command.on('exit', () => {
       // Clean up local connection but preserve remote session ID for reattach
       cleanupLocalSession(vmName);
       connectedVMs.delete(vmName);
-      osc52Parsers.delete(vmName);
 
       if (state.mode === 'console') {
         const activeVm = state.vms[state.activeVmIndex];
@@ -1162,14 +1168,28 @@ async function main() {
     const error = app.getSelectedVMError();
     if (!error) return;
 
-    const ok = await copyToClipboard(error);
-    if (ok) {
-      app.setStatusMessage('Error copied to clipboard');
-      setTimeout(() => app.resetStatus(), 2000);
-    } else {
-      app.setStatusMessage('Failed to copy error: no clipboard command available');
-      setTimeout(() => app.resetStatus(), 3000);
+    // Try clipboard commands in order: pbcopy (macOS), xclip, xsel (Linux)
+    const commands: [string, string[]][] = process.platform === 'darwin'
+      ? [['pbcopy', []]]
+      : [['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]];
+
+    for (const [cmd, args] of commands) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const proc = execFile(cmd, args, (err) => err ? reject(err) : resolve());
+          proc.stdin?.write(error);
+          proc.stdin?.end();
+        });
+        app.setStatusMessage('Error copied to clipboard');
+        setTimeout(() => app.resetStatus(), 2000);
+        return;
+      } catch {
+        continue;
+      }
     }
+
+    app.setStatusMessage('Failed to copy error: no clipboard command available');
+    setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Quit handler - detach all sessions gracefully
