@@ -2147,6 +2147,40 @@ export function createApp() {
     }
   });
 
+  // Spinner state
+  const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let spinnerTimer: ReturnType<typeof setInterval> | null = null;
+  let spinnerFrameIdx = 0;
+  let spinnerText = '';
+
+  function startSpinner(text: string) {
+    spinnerText = text;
+    spinnerFrameIdx = 0;
+    if (spinnerTimer) clearInterval(spinnerTimer);
+    statusBar.setContent(` ${SPINNER_FRAMES[0]} ${text}`);
+    screen.render();
+    spinnerTimer = setInterval(() => {
+      spinnerFrameIdx = (spinnerFrameIdx + 1) % SPINNER_FRAMES.length;
+      statusBar.setContent(` ${SPINNER_FRAMES[spinnerFrameIdx]} ${spinnerText}`);
+      screen.render();
+    }, 80);
+  }
+
+  function updateSpinner(text: string) {
+    spinnerText = text;
+    if (spinnerTimer) {
+      statusBar.setContent(` ${SPINNER_FRAMES[spinnerFrameIdx]} ${text}`);
+      screen.render();
+    }
+  }
+
+  function stopSpinner() {
+    if (spinnerTimer) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = null;
+    }
+  }
+
   // Refresh sidebar/dashboard every second so elapsed timers update live
   const elapsedTimer = setInterval(() => {
     if (state.vms.some(vm => vm.taskStartedAt != null)) {
@@ -2159,9 +2193,10 @@ export function createApp() {
     }
   }, 1000);
 
-  // Clean up timer when screen is destroyed
+  // Clean up timers when screen is destroyed
   screen.on('destroy', () => {
     clearInterval(elapsedTimer);
+    if (spinnerTimer) clearInterval(spinnerTimer);
   });
 
   /**
@@ -2245,5 +2280,8 @@ export function createApp() {
         renderMainView();
       }
     },
+    startSpinner,
+    updateSpinner,
+    stopSpinner,
   };
 }

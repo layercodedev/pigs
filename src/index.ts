@@ -260,7 +260,7 @@ async function main() {
   // Create VM handler
   app.onKey('create', async () => {
     state.mode = 'creating';
-    app.setStatusMessage('Creating new agent VM...');
+    app.startSpinner('Creating VM...');
     try {
       const vm = await createVM(client);
       vm.provisioningStatus = 'pending';
@@ -272,11 +272,11 @@ async function main() {
 
       // Provision in background
       vm.provisioningStatus = 'provisioning';
-      app.setStatusMessage(`Provisioning ${vm.name}...`);
+      app.updateSpinner(`${vm.name}: Provisioning...`);
       app.render();
       try {
         await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
-          app.setStatusMessage(`${vm.name}: ${msg}`);
+          app.updateSpinner(`${vm.name}: ${msg}`);
           appendOutput(vm.name, `${msg}\n`);
           const selectedVm = state.vms[state.sidebarSelectedIndex];
           if (selectedVm && selectedVm.name === vm.name) {
@@ -284,12 +284,15 @@ async function main() {
           }
         });
         vm.provisioningStatus = 'done';
-        app.setStatusMessage(`${vm.name} provisioned`);
+        app.stopSpinner();
+        app.setStatusMessage(`✓ ${vm.name} provisioned`);
       } catch (err: any) {
         vm.provisioningStatus = 'failed';
+        app.stopSpinner();
         app.setStatusMessage(`Provisioning failed: ${err.message}`);
       }
     } catch (err: any) {
+      app.stopSpinner();
       app.setStatusMessage(`Error creating VM: ${err.message}`);
       state.mode = 'normal';
     }
@@ -300,7 +303,7 @@ async function main() {
   // Bulk create VMs handler
   app.onKey('bulk-create', async (count: number) => {
     state.mode = 'creating';
-    app.setStatusMessage(`Creating ${count} agent VMs...`);
+    app.startSpinner(`Creating ${count} VMs...`);
 
     let created = 0;
     let failed = 0;
@@ -312,7 +315,7 @@ async function main() {
         vm.provisioningStatus = 'pending';
         state.vms.push(vm);
         created++;
-        app.setStatusMessage(`Created ${created}/${count} VMs...`);
+        app.updateSpinner(`Created ${created}/${count} VMs...`);
         app.render();
         return vm;
       } catch {
@@ -332,7 +335,7 @@ async function main() {
     state.mode = 'normal';
 
     const failMsg = failed > 0 ? ` (${failed} failed)` : '';
-    app.setStatusMessage(`Created ${created} VMs${failMsg}, provisioning...`);
+    app.updateSpinner(`Created ${created} VMs${failMsg}, provisioning...`);
     app.render();
 
     // Provision all new VMs in parallel
@@ -343,6 +346,7 @@ async function main() {
       app.render();
       try {
         await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+          app.updateSpinner(`${vm.name}: ${msg}`);
           appendOutput(vm.name, `${msg}\n`);
           const selectedVm = state.vms[state.sidebarSelectedIndex];
           if (selectedVm && selectedVm.name === vm.name) {
@@ -351,7 +355,7 @@ async function main() {
         });
         vm.provisioningStatus = 'done';
         provisioned++;
-        app.setStatusMessage(`Provisioned ${provisioned}/${newVMs.length}${provFailed > 0 ? ` (${provFailed} failed)` : ''}...`);
+        app.updateSpinner(`Provisioned ${provisioned}/${newVMs.length}${provFailed > 0 ? ` (${provFailed} failed)` : ''}...`);
         app.render();
       } catch {
         vm.provisioningStatus = 'failed';
@@ -361,8 +365,9 @@ async function main() {
     });
 
     await Promise.all(provisionPromises);
+    app.stopSpinner();
     const provFailMsg = provFailed > 0 ? ` (${provFailed} failed)` : '';
-    app.setStatusMessage(`${provisioned} VMs provisioned${provFailMsg}`);
+    app.setStatusMessage(`✓ ${provisioned} VMs provisioned${provFailMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
@@ -569,11 +574,12 @@ async function main() {
     if (!vm || vm.provisioningStatus !== 'failed') return;
 
     vm.provisioningStatus = 'provisioning';
-    app.setStatusMessage(`Retrying provisioning for ${vm.displayLabel ?? vm.name}...`);
+    vm.lastError = undefined;
+    app.startSpinner(`${vm.displayLabel ?? vm.name}: Retrying provisioning...`);
     app.render();
     try {
       await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
-        app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
+        app.updateSpinner(`${vm.displayLabel ?? vm.name}: ${msg}`);
         appendOutput(vm.name, `${msg}\n`);
         const selectedVm = state.vms[state.sidebarSelectedIndex];
         if (selectedVm && selectedVm.name === vm.name) {
@@ -581,9 +587,11 @@ async function main() {
         }
       });
       vm.provisioningStatus = 'done';
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} provisioned`);
+      app.stopSpinner();
+      app.setStatusMessage(`✓ ${vm.displayLabel ?? vm.name} provisioned`);
     } catch (err: any) {
       vm.provisioningStatus = 'failed';
+      app.stopSpinner();
       app.setStatusMessage(`Provisioning failed: ${err.message}`);
     }
     app.render();
@@ -794,7 +802,7 @@ async function main() {
   app.onKey('linear-claim', async (issues: LinearIssue[]) => {
     const count = issues.length;
     const label = count === 1 ? issues[0].identifier : `${count} tasks`;
-    app.setStatusMessage(`Claiming ${label}...`);
+    app.startSpinner(`Claiming ${label}...`);
 
     async function claimSingleIssue(issue: LinearIssue): Promise<{ ok: boolean; identifier: string }> {
       // Set issue to In Progress in Linear
@@ -806,6 +814,7 @@ async function main() {
 
       // Create a new VM
       try {
+        app.updateSpinner(`${issue.identifier}: Creating VM...`);
         const vm = await createVM(client);
         vm.provisioningStatus = 'pending';
         vm.displayLabel = issue.identifier;
@@ -818,6 +827,7 @@ async function main() {
         app.render();
         try {
           await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+            app.updateSpinner(`${issue.identifier}: ${msg}`);
             appendOutput(vm.name, `${msg}\n`);
             const selectedVm = state.vms[state.sidebarSelectedIndex];
             if (selectedVm && selectedVm.name === vm.name) {
@@ -860,8 +870,9 @@ async function main() {
       state.activeVmIndex = state.vms.length - 1;
     }
 
+    app.stopSpinner();
     if (failed.length === 0) {
-      app.setStatusMessage(`${succeeded.length} task${succeeded.length !== 1 ? 's' : ''} claimed and sent to agents`);
+      app.setStatusMessage(`✓ ${succeeded.length} task${succeeded.length !== 1 ? 's' : ''} claimed and sent to agents`);
     } else {
       app.setStatusMessage(`${succeeded.length} claimed, ${failed.length} failed (${failed.map(f => f.identifier).join(', ')})`);
     }
