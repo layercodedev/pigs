@@ -113,15 +113,16 @@ describe('console-session', () => {
   });
 
   describe('detachConsole', () => {
-    it('should remove stdout and stderr listeners', async () => {
+    it('should be a no-op (listeners continue buffering while detached)', async () => {
       const mockCmd = createMockSpriteCommand();
       const client = createMockClient(mockCmd);
 
       await attachConsole(client, 'pigs-abc', 80, 24);
       detachConsole('pigs-abc');
 
-      expect(mockCmd.stdout.removeAllListeners).toHaveBeenCalledWith('data');
-      expect(mockCmd.stderr.removeAllListeners).toHaveBeenCalledWith('data');
+      // Listeners should not be removed - they continue buffering
+      expect(mockCmd.stdout.removeAllListeners).not.toHaveBeenCalled();
+      expect(mockCmd.stderr.removeAllListeners).not.toHaveBeenCalled();
     });
 
     it('should be safe to call for non-existent session', () => {
@@ -203,7 +204,7 @@ describe('console-session', () => {
   });
 
   describe('detachAll', () => {
-    it('should detach from all sessions', async () => {
+    it('should be safe to call (listeners continue buffering)', async () => {
       const mockCmd1 = createMockSpriteCommand();
       const mockCmd2 = createMockSpriteCommand();
       const client1 = createMockClient(mockCmd1);
@@ -213,8 +214,9 @@ describe('console-session', () => {
       await attachConsole(client2, 'pigs-def', 80, 24);
       detachAll();
 
-      expect(mockCmd1.stdout.removeAllListeners).toHaveBeenCalledWith('data');
-      expect(mockCmd2.stdout.removeAllListeners).toHaveBeenCalledWith('data');
+      // Listeners should not be removed - they continue buffering
+      expect(mockCmd1.stdout.removeAllListeners).not.toHaveBeenCalled();
+      expect(mockCmd2.stdout.removeAllListeners).not.toHaveBeenCalled();
     });
   });
 

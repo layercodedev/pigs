@@ -56,6 +56,40 @@ let testVM: VM;
 const TEST_VM_PREFIX = 'pigs-itest-';
 
 // ---------------------------------------------------------------------------
+// Cleanup helper (shared by afterAll + signal handlers)
+// ---------------------------------------------------------------------------
+async function cleanupAllTestVMs() {
+  try {
+    const allVMs = await client.listAllSprites(TEST_VM_PREFIX);
+    for (const sprite of allVMs) {
+      try {
+        destroyConsole(sprite.name);
+      } catch (e) {
+        console.warn(`[itest] failed to destroy console for ${sprite.name}:`, e);
+      }
+      try {
+        await client.deleteSprite(sprite.name);
+        console.warn(`[itest] deleted VM ${sprite.name}`);
+      } catch (e) {
+        console.warn(`[itest] failed to delete VM ${sprite.name}:`, e);
+      }
+    }
+  } catch (e) {
+    console.warn('[itest] cleanup failed to list VMs:', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Process signal handlers — ensure VMs are cleaned up on Ctrl+C / kill
+// ---------------------------------------------------------------------------
+function handleSignal(signal: string) {
+  console.warn(`[itest] received ${signal}, cleaning up VMs...`);
+  cleanupAllTestVMs().finally(() => process.exit(1));
+}
+process.on('SIGINT', () => handleSignal('SIGINT'));
+process.on('SIGTERM', () => handleSignal('SIGTERM'));
+
+// ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeAll(async () => {
@@ -66,23 +100,14 @@ beforeAll(async () => {
     );
   }
   client = createSpritesClient();
-}, 10_000);
+
+  // Delete any stale pigs-itest-* VMs left over from previous failed runs
+  await cleanupAllTestVMs();
+}, 60_000);
 
 afterAll(async () => {
   // Best-effort cleanup: delete our test VM and any leaked itest VMs
-  try {
-    const allVMs = await client.listAllSprites(TEST_VM_PREFIX);
-    for (const sprite of allVMs) {
-      try {
-        destroyConsole(sprite.name);
-      } catch { /* ignore */ }
-      try {
-        await client.deleteSprite(sprite.name);
-      } catch { /* ignore */ }
-    }
-  } catch {
-    // If cleanup fails, that's acceptable — don't break the test run
-  }
+  await cleanupAllTestVMs();
 }, 60_000);
 
 // ---------------------------------------------------------------------------

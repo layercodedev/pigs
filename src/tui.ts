@@ -216,7 +216,8 @@ export function createApp() {
   });
 
   // Terminal output area inside main view (for console sessions)
-  const terminal = blessed.box({
+  // Using blessed.terminal for proper terminal emulation (handles escape sequences, cursor, etc.)
+  const terminal = blessed.terminal({
     parent: mainView,
     top: 0,
     left: 0,
@@ -228,9 +229,29 @@ export function createApp() {
       style: { bg: 'gray' },
     },
     mouse: true,
-    keys: false,
+    keys: true,
     tags: false,
     hidden: true,
+    cursor: 'block',
+    terminal: 'xterm-256color',
+    // Handler to forward user input to the VM
+    handler: (data: Buffer) => {
+      if (state.mode !== 'console') return;
+      
+      const str = data.toString();
+      
+      // F10 key detaches from console (xterm F10 sequence: \x1b[21~)
+      if (str === '\x1b[21~') {
+        state.mode = 'normal';
+        statusBar.setContent(normalStatusText);
+        render();
+        handlers['console-detach']?.();
+        return;
+      }
+      
+      // Forward all other input to VM (including Escape, Ctrl+C, arrows, backspace, etc.)
+      handlers['console-input']?.(str);
+    },
   });
 
   // Status bar at the bottom
@@ -807,7 +828,7 @@ export function createApp() {
   });
 
   const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  L:linear  i:dashboard  s:sort  /:search  ?:help  q:quit';
-  const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
+  const consoleStatusText = ' F10:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
     return sortVMs(filterVMs(state.vms, state.searchFilter), state.sortMode);
@@ -956,21 +977,9 @@ export function createApp() {
     handlers[key] = handler;
   }
 
-  // Handle console mode input - forward raw data to the VM
-  screen.program.on('data', (data: string) => {
-    if (state.mode !== 'console') return;
-
-    // Escape key detaches from console
-    if (data === '\x1b' || data === '\x1b\x1b') {
-      state.mode = 'normal';
-      statusBar.setContent(normalStatusText);
-      render();
-      handlers['console-detach']?.();
-      return;
-    }
-
-    handlers['console-input']?.(data);
-  });
+  // Note: Console mode input is now handled by blessed.terminal's handler option
+  // This provides proper terminal emulation including support for escape sequences,
+  // arrow keys, backspace, Ctrl+C, etc. F10 is used to detach from console mode.
 
   let quitting = false;
 
@@ -1434,8 +1443,8 @@ export function createApp() {
    * Write output data to the terminal display.
    */
   function writeToTerminal(data: string) {
-    terminal.pushLine(data.replace(/\r?\n/g, '\n').replace(/\n$/, ''));
-    terminal.setScrollPerc(100);
+    // blessed.terminal handles escape sequences properly via its term.js integration
+    terminal.write(data);
     screen.render();
   }
 
@@ -1443,7 +1452,8 @@ export function createApp() {
    * Clear the terminal display.
    */
   function clearTerminal() {
-    terminal.setContent('');
+    // Send clear screen escape sequence
+    terminal.write('\x1b[2J\x1b[H');
     screen.render();
   }
 
@@ -1451,8 +1461,11 @@ export function createApp() {
    * Restore terminal display from an array of buffered output lines.
    */
   function restoreTerminal(lines: string[]) {
-    terminal.setContent(lines.join('\n'));
-    terminal.setScrollPerc(100);
+    // Clear first, then write all lines
+    terminal.write('\x1b[2J\x1b[H');
+    if (lines.length > 0) {
+      terminal.write(lines.join('\n') + '\n');
+    }
     screen.render();
   }
 
@@ -1462,6 +1475,7 @@ export function createApp() {
   function enterConsoleMode() {
     state.mode = 'console';
     statusBar.setContent(consoleStatusText);
+    terminal.focus();
     render();
   }
 
@@ -2066,11 +2080,11 @@ export function createApp() {
    * Show a read-only preview of buffered output lines in the terminal view.
    */
   function showPreview(lines: string[]) {
+    // Clear terminal and write preview content
+    terminal.write('\x1b[2J\x1b[H');
     if (lines.length > 0) {
-      terminal.setContent(lines.map(l => stripAnsi(l)).join('\n'));
-      terminal.setScrollPerc(100);
-    } else {
-      terminal.setContent('');
+      // Write lines to terminal (blessed.terminal handles ANSI codes properly)
+      terminal.write(lines.join('\n') + '\n');
     }
     screen.render();
   }

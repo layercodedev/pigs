@@ -47,14 +47,12 @@ export async function attachConsole(
 
 /**
  * Detach from a console session without killing it.
- * Removes event listeners but the remote process keeps running.
+ * Listeners continue buffering output while detached.
+ * The mode check in listeners prevents writing to the display.
  */
 export function detachConsole(vmName: string): void {
-  const session = sessions.get(vmName);
-  if (session) {
-    session.command.stdout.removeAllListeners('data');
-    session.command.stderr.removeAllListeners('data');
-  }
+  // Listeners continue buffering output while detached.
+  // The mode check in listeners prevents writing to the display.
 }
 
 /**

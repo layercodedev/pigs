@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@fly/sprites": "^0.0.1",
-    "blessed": "^0.1.81"
+    "blessed": "^0.1.81",
+    "term.js": "^0.0.7"
   },
   "license": "MIT",
   "devDependencies": {
