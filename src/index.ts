@@ -269,9 +269,26 @@ async function main() {
           }
         });
         vm.provisioningStatus = 'done';
-        app.setStatusMessage(`${vm.name} provisioned`);
+        app.render();
+
+        // Auto-connect to the newly provisioned VM
+        try {
+          const { cols, rows } = app.getTerminalSize();
+          await attachConsole(client, vm.name, cols, rows);
+          connectSessionOutput(vm.name);
+          const buffered = getOutput(vm.name);
+          if (buffered.length > 0) {
+            app.restoreTerminal(buffered);
+          } else {
+            app.clearTerminal();
+          }
+          app.enterConsoleMode();
+        } catch (err: any) {
+          app.setStatusMessage(`Provisioned but connect failed: ${err.message}`);
+        }
       } catch (err: any) {
         vm.provisioningStatus = 'failed';
+        vm.lastError = err.message || String(err);
         app.setStatusMessage(`Provisioning failed: ${err.message}`);
       }
     } catch (err: any) {
@@ -566,9 +583,26 @@ async function main() {
         }
       });
       vm.provisioningStatus = 'done';
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} provisioned`);
+      app.render();
+
+      // Auto-connect to the newly provisioned VM
+      try {
+        const { cols, rows } = app.getTerminalSize();
+        await attachConsole(client, vm.name, cols, rows);
+        connectSessionOutput(vm.name);
+        const buffered = getOutput(vm.name);
+        if (buffered.length > 0) {
+          app.restoreTerminal(buffered);
+        } else {
+          app.clearTerminal();
+        }
+        app.enterConsoleMode();
+      } catch (err: any) {
+        app.setStatusMessage(`Provisioned but connect failed: ${err.message}`);
+      }
     } catch (err: any) {
       vm.provisioningStatus = 'failed';
+      vm.lastError = err.message || String(err);
       app.setStatusMessage(`Provisioning failed: ${err.message}`);
     }
     app.render();

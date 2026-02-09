@@ -25,7 +25,8 @@ export async function attachConsole(
   }
 
   const sprite = client.sprite(vmName);
-  const command = sprite.spawn('bash', [], {
+  // Use tmux so reattaching reconnects to the same session
+  const command = sprite.spawn('tmux', ['new-session', '-A', '-s', 'main'], {
     tty: true,
     cols,
     rows,
