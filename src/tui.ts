@@ -254,6 +254,31 @@ export function createApp() {
     },
   });
 
+  // Pending action display (shown at top of main view when action in progress)
+  const pendingActionDisplay = blessed.text({
+    parent: mainView,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 1,
+    hidden: true,
+    style: { fg: 'yellow', bg: 'black' },
+    tags: true,
+  });
+
+  // Error display (shown at top of main view when there's an error)
+  const errorDisplay = blessed.box({
+    parent: mainView,
+    top: 0,
+    left: 1,
+    right: 1,
+    height: 3,
+    hidden: true,
+    style: { fg: 'red', bg: 'black' },
+    tags: true,
+    content: '',
+  });
+
   // Status bar at the bottom
   const statusBar = blessed.box({
     parent: screen,
@@ -485,6 +510,7 @@ export function createApp() {
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
       '  /             Search/filter VMs in sidebar',
+      '  E (shift)     Copy VM error to clipboard',
       '  Escape        Clear search filter (in normal mode)',
       '  ?             Toggle this help screen',
       '  q             Quit',
@@ -902,19 +928,44 @@ export function createApp() {
       mainView.style.border = { fg: 'yellow' };
       noVmMessage.hide();
       terminal.show();
+      updatePendingAndErrorDisplay(vm);
     } else if (state.sidebarSelectedIndex >= 0 && state.vms[state.sidebarSelectedIndex]) {
       const vm = state.vms[state.sidebarSelectedIndex];
       mainView.setLabel(` Preview: ${vm.displayLabel ?? vm.name} `);
       mainView.style.border = { fg: 'green' };
       noVmMessage.hide();
       terminal.show();
+      updatePendingAndErrorDisplay(vm);
     } else {
       mainView.setLabel(' Console ');
       mainView.style.border = { fg: 'green' };
       noVmMessage.show();
       terminal.hide();
+      pendingActionDisplay.hide();
+      errorDisplay.hide();
     }
     screen.render();
+  }
+
+  function updatePendingAndErrorDisplay(vm: VM) {
+    // Show pending action if present
+    if (vm.pendingAction) {
+      pendingActionDisplay.setContent(`{yellow-fg}⏳ ${vm.pendingAction}{/yellow-fg}`);
+      pendingActionDisplay.show();
+    } else {
+      pendingActionDisplay.hide();
+    }
+
+    // Show error if present (take priority over pending action)
+    if (vm.lastError) {
+      const errorLines = vm.lastError.split('\n').slice(0, 2);
+      const truncated = errorLines.join('\n') + (vm.lastError.split('\n').length > 2 ? '...' : '');
+      errorDisplay.setContent(`{red-fg}{bold}Error:{/bold}{/red-fg} ${truncated}\n{gray-fg}Press E to copy full error to clipboard{/gray-fg}`);
+      errorDisplay.show();
+      pendingActionDisplay.hide();
+    } else if (!vm.pendingAction) {
+      errorDisplay.hide();
+    }
   }
 
   function showConfirmDelete(vm: VM) {
@@ -1339,6 +1390,14 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     handlers['export-log']?.();
+  });
+
+  screen.key(['S-e'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm || !vm.lastError) return;
+    handlers['copy-error']?.();
   });
 
   screen.key(['v'], () => {
@@ -2145,6 +2204,17 @@ export function createApp() {
         statusBar.setContent(normalStatusText);
       }
       screen.render();
+    },
+    getSelectedVMError(): string | undefined {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      return vm?.lastError;
+    },
+    clearSelectedVMError() {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (vm) {
+        vm.lastError = undefined;
+        renderMainView();
+      }
     },
   };
 }

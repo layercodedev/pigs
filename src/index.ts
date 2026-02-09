@@ -1,5 +1,9 @@
 #!/usr/bin/env bun
 
+// Use a standard terminal type to avoid terminfo parsing issues with modern terminals
+// (e.g., xterm-ghostty has RGB underline capabilities that blessed can't parse)
+process.env.TERM = process.env.TERM?.includes('ghostty') ? 'xterm-256color' : (process.env.TERM || 'xterm-256color');
+
 import { createApp } from './tui.ts';
 import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.ts';
 import {
@@ -333,6 +337,7 @@ async function main() {
     if (!vm) return;
     app.setStatusMessage(`Deleting VM: ${vm.name}...`);
     vm.pendingAction = 'deleting...';
+    vm.lastError = undefined;
     app.render();
     try {
       if (isMounted(vm.name)) {
@@ -352,6 +357,7 @@ async function main() {
       app.setStatusMessage('VM deleted');
     } catch (err: any) {
       vm.pendingAction = undefined;
+      vm.lastError = err.message || String(err);
       app.setStatusMessage(`Error deleting VM: ${err.message}`);
     }
     app.render();
@@ -371,6 +377,7 @@ async function main() {
     // Delete all VMs in parallel
     const deletePromises = [...state.vms].map(async (vm) => {
       vm.pendingAction = 'deleting...';
+      vm.lastError = undefined;
       app.render();
       try {
         if (isMounted(vm.name)) {
@@ -384,8 +391,9 @@ async function main() {
         deletedNames.add(vm.name);
         app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
         app.render();
-      } catch {
+      } catch (err: any) {
         vm.pendingAction = undefined;
+        vm.lastError = err.message || String(err);
         failed++;
       }
     });
@@ -410,6 +418,7 @@ async function main() {
 
     app.setStatusMessage(`Re-provisioning ${vm.displayLabel ?? vm.name}...`);
     vm.pendingAction = 're-provisioning...';
+    vm.lastError = undefined;
     app.render();
     try {
       // Reload settings from disk
@@ -421,6 +430,7 @@ async function main() {
       app.setStatusMessage(`${vm.displayLabel ?? vm.name} re-provisioned`);
     } catch (err: any) {
       vm.pendingAction = undefined;
+      vm.lastError = err.message || String(err);
       app.setStatusMessage(`Re-provision failed: ${err.message}`);
     }
     app.render();
@@ -448,6 +458,7 @@ async function main() {
 
     const promises = targets.map(async (vm) => {
       vm.pendingAction = 're-provisioning...';
+      vm.lastError = undefined;
       app.render();
       try {
         await reprovisionVM(client, vm.name);
@@ -455,8 +466,9 @@ async function main() {
         done++;
         app.setStatusMessage(`Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ''}...`);
         app.render();
-      } catch {
+      } catch (err: any) {
         vm.pendingAction = undefined;
+        vm.lastError = err.message || String(err);
         failed++;
       }
     });
@@ -821,6 +833,7 @@ async function main() {
     }
     app.setStatusMessage(`Mounting ${vm.name}...`);
     vm.pendingAction = 'mounting...';
+    vm.lastError = undefined;
     app.render();
     try {
       const mountPath = await mountVM(client, vm.name, (msg) => {
@@ -842,6 +855,7 @@ async function main() {
       }
     } catch (err: any) {
       vm.pendingAction = undefined;
+      vm.lastError = err.message || String(err);
       app.setStatusMessage(`Mount failed: ${err.message}`);
     }
     app.render();
@@ -1075,6 +1089,7 @@ async function main() {
     }
     app.setStatusMessage(`Unmounting ${vm.name}...`);
     vm.pendingAction = 'unmounting...';
+    vm.lastError = undefined;
     app.render();
     try {
       await unmountVM(vm.name);
@@ -1083,10 +1098,66 @@ async function main() {
       app.setStatusMessage(`Unmounted ${vm.name}`);
     } catch (err: any) {
       vm.pendingAction = undefined;
+      vm.lastError = err.message || String(err);
       app.setStatusMessage(`Unmount failed: ${err.message}`);
     }
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Copy error to clipboard handler
+  app.onKey('copy-error', async () => {
+    const error = app.getSelectedVMError();
+    if (!error) return;
+
+    try {
+      // Use pbcopy for macOS, xclip for Linux
+      const isMac = process.platform === 'darwin';
+      if (isMac) {
+        const proc = execFile('pbcopy', [], (err) => {
+          if (err) {
+            app.setStatusMessage(`Failed to copy error: ${err.message}`);
+            setTimeout(() => app.resetStatus(), 3000);
+            return;
+          }
+          app.setStatusMessage('Error copied to clipboard');
+          setTimeout(() => app.resetStatus(), 2000);
+        });
+        if (proc.stdin) {
+          proc.stdin.write(error);
+          proc.stdin.end();
+        }
+      } else {
+        const proc = execFile('xclip', ['-selection', 'clipboard'], (err) => {
+          if (err) {
+            // Try xsel as fallback
+            const proc2 = execFile('xsel', ['--clipboard', '--input'], (err2) => {
+              if (err2) {
+                app.setStatusMessage(`Failed to copy error: ${err2.message}`);
+                setTimeout(() => app.resetStatus(), 3000);
+                return;
+              }
+              app.setStatusMessage('Error copied to clipboard');
+              setTimeout(() => app.resetStatus(), 2000);
+            });
+            if (proc2.stdin) {
+              proc2.stdin.write(error);
+              proc2.stdin.end();
+            }
+            return;
+          }
+          app.setStatusMessage('Error copied to clipboard');
+          setTimeout(() => app.resetStatus(), 2000);
+        });
+        if (proc.stdin) {
+          proc.stdin.write(error);
+          proc.stdin.end();
+        }
+      }
+    } catch (err: any) {
+      app.setStatusMessage(`Failed to copy error: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
   });
 
   // Quit handler - detach all sessions gracefully

@@ -10,6 +10,7 @@ export interface VM {
   customLabel?: boolean;
   taskStartedAt?: number;
   pendingAction?: string;
+  lastError?: string;
 }
 
 export interface PigsSettings {
