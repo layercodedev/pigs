@@ -188,16 +188,27 @@ async function main() {
     const vm = state.vms[state.activeVmIndex];
     if (!vm) return;
 
+    // Lock to this VM while connecting — prevents navigation
+    state.mode = 'connecting';
+
     // Clear attention indicator when user activates this VM
     clearAttention(vm);
 
-    app.setStatusMessage(`Connecting to ${vm.name}...`);
+    app.setStatusMessage(`Connecting to ${vm.name}... (Escape to cancel)`);
     vm.pendingAction = 'connecting...';
     vm.lastError = undefined;
     app.render();
     try {
       const { cols, rows } = app.getTerminalSize();
       await attachConsole(client, vm.name, cols, rows);
+
+      // Check if user cancelled during the await
+      if (state.mode !== 'connecting') {
+        vm.pendingAction = undefined;
+        app.render();
+        return;
+      }
+
       vm.pendingAction = undefined;
       connectSessionOutput(vm.name);
       // Restore buffered output for this VM
@@ -210,9 +221,12 @@ async function main() {
       app.enterConsoleMode();
     } catch (err: any) {
       vm.pendingAction = undefined;
-      vm.lastError = err.message || String(err);
-      app.setStatusMessage(`Error connecting: ${err.message}`);
-      setTimeout(() => app.resetStatus(), 3000);
+      if (state.mode === 'connecting') {
+        state.mode = 'normal';
+        vm.lastError = err.message || String(err);
+        app.setStatusMessage(`Error connecting: ${err.message}`);
+        setTimeout(() => app.resetStatus(), 3000);
+      }
     }
     app.render();
   });

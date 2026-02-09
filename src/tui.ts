@@ -1495,6 +1495,17 @@ export function createApp() {
     if (state.mode === 'queue-viewer') {
       hideQueueViewer();
     }
+    if (state.mode === 'connecting') {
+      state.mode = 'normal';
+      // Clear pending action on the VM being connected
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (vm) {
+        vm.pendingAction = undefined;
+      }
+      statusBar.setContent(normalStatusText);
+      render();
+      return;
+    }
     if (state.mode === 'normal' && state.searchFilter) {
       clearSearch();
     }
