@@ -6,6 +6,7 @@ import {
   attachConsole,
   detachConsole,
   destroyConsole,
+  cleanupLocalSession,
   resizeConsole,
   writeToConsole,
   detachAll,
@@ -157,8 +158,8 @@ async function main() {
     });
 
     session.command.on('exit', () => {
-      // Clean up the dead session so the next attach creates a fresh one
-      destroyConsole(vmName);
+      // Clean up local connection but preserve remote session ID for reattach
+      cleanupLocalSession(vmName);
       connectedVMs.delete(vmName);
 
       if (state.mode === 'console') {

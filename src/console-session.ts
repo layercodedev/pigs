@@ -6,12 +6,16 @@ export interface ConsoleSession {
   started: boolean;
 }
 
-// Active sessions keyed by VM name
+// Active local connections keyed by VM name
 const sessions = new Map<string, ConsoleSession>();
 
+// Remote session IDs keyed by VM name (persist across local disconnects)
+const remoteSessionIds = new Map<string, string>();
+
 /**
- * Get or create a TTY console session for a VM.
- * Spawns bash with TTY enabled and starts the command.
+ * Get or create a detachable console session for a VM.
+ * Uses sprites' built-in detachable sessions so reattaching
+ * reconnects to the same shell with state preserved.
  */
 export async function attachConsole(
   client: SpritesClient,
@@ -25,16 +29,68 @@ export async function attachConsole(
   }
 
   const sprite = client.sprite(vmName);
-  const command = sprite.spawn('bash', [], {
-    tty: true,
-    cols,
-    rows,
-  });
-  // spawn() auto-starts the command; wait for the WebSocket to be ready
+  const existingSessionId = remoteSessionIds.get(vmName);
+
+  let command: SpriteCommand;
+
+  if (existingSessionId) {
+    // Verify the remote session is still alive
+    let alive = false;
+    try {
+      const remoteSessions = await sprite.listSessions();
+      alive = remoteSessions.some(s => s.id === existingSessionId && s.isActive);
+    } catch {
+      // If listing fails, assume dead
+    }
+
+    if (alive) {
+      // Reattach to existing remote session via sessionId param
+      command = sprite.spawn('bash', [], {
+        tty: true,
+        cols,
+        rows,
+        sessionId: existingSessionId,
+      });
+    } else {
+      // Session is dead, create a new detachable one
+      remoteSessionIds.delete(vmName);
+      command = sprite.spawn('bash', [], {
+        tty: true,
+        cols,
+        rows,
+        detachable: true,
+      });
+    }
+  } else {
+    // First connect — create a detachable session
+    command = sprite.spawn('bash', [], {
+      tty: true,
+      cols,
+      rows,
+      detachable: true,
+    });
+  }
+
+  // Wait for the WebSocket to be ready
   await new Promise<void>((resolve, reject) => {
     command.on('spawn', resolve);
     command.on('error', reject);
   });
+
+  // Discover and store the remote session ID for future reattach
+  if (!remoteSessionIds.has(vmName)) {
+    try {
+      const remoteSessions = await sprite.listSessions();
+      const active = remoteSessions
+        .filter(s => s.isActive)
+        .sort((a, b) => b.created.getTime() - a.created.getTime());
+      if (active.length > 0) {
+        remoteSessionIds.set(vmName, active[0].id);
+      }
+    } catch {
+      // Best effort
+    }
+  }
 
   const session: ConsoleSession = {
     vmName,
@@ -46,28 +102,35 @@ export async function attachConsole(
 }
 
 /**
- * Detach from a console session without killing it.
- * Listeners continue buffering output while detached.
- * The mode check in listeners prevents writing to the display.
+ * Detach from a console session without killing the remote session.
+ * Just closes the local WebSocket; the remote session stays alive for reattach.
  */
 export function detachConsole(vmName: string): void {
-  // Listeners continue buffering output while detached.
-  // The mode check in listeners prevents writing to the display.
-}
-
-/**
- * Kill and remove a console session.
- */
-export function destroyConsole(vmName: string): void {
   const session = sessions.get(vmName);
   if (session) {
     try {
       session.command.kill();
     } catch {
-      // Ignore errors on kill (may already be dead)
+      // Ignore — kill() just closes the WebSocket
     }
     sessions.delete(vmName);
   }
+}
+
+/**
+ * Kill and remove a console session, including the remote session ID.
+ * Used when deleting a VM entirely.
+ */
+export function destroyConsole(vmName: string): void {
+  detachConsole(vmName);
+  remoteSessionIds.delete(vmName);
+}
+
+/**
+ * Clean up the local connection but preserve the remote session ID for reattach.
+ */
+export function cleanupLocalSession(vmName: string): void {
+  sessions.delete(vmName);
 }
 
 /**

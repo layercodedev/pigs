@@ -6,9 +6,16 @@ import { join } from 'node:path';
 
 // Mock node:fs/promises
 mock.module('node:fs/promises', () => ({
-  readFile: jest.fn(),
-  mkdir: jest.fn().mockResolvedValue(undefined),
-  writeFile: jest.fn().mockResolvedValue(undefined),
+	readFile: jest.fn(),
+	mkdir: jest.fn().mockResolvedValue(undefined),
+	writeFile: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock node:child_process to prevent real keychain access in tests
+mock.module('node:child_process', () => ({
+	execFile: jest.fn((cmd: string, args: string[], cb: Function) => {
+		cb(new Error('mock: no keychain'), '', '');
+	}),
 }));
 
 const mockedReadFile = readFile as Mock<typeof readFile>;
@@ -97,12 +104,13 @@ describe('provisionVM', () => {
   it('should call shellExec for provisioning script', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
+    mockedReadFile.mockResolvedValue(JSON.stringify({ claudeAiOauth: { accessToken: 'test' } }));
 
     await provisionVM(client, 'pigs-abc123', { claudeMd: '# Test' });
 
     expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-    // Three shellExec calls: provision script, CLAUDE.md, notification hook
-    expect(mockSprite.execFile).toHaveBeenCalledTimes(3);
+    // Four shellExec calls: provision script, CLAUDE.md, notification hook, credentials sync
+    expect(mockSprite.execFile).toHaveBeenCalledTimes(4);
     // shellExec calls execFile('bash', ['-c', script])
     expect(mockSprite.execFile.mock.calls[0][0]).toBe('bash');
     const firstScript = mockSprite.execFile.mock.calls[0][1][1] as string;
