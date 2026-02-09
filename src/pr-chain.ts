@@ -1,5 +1,5 @@
 import type { SpritesClient } from '@fly/sprites';
-import { shellExec } from './shell-exec.js';
+import { shellExec } from './shell-exec.ts';
 
 export interface PRInfo {
   number: number;

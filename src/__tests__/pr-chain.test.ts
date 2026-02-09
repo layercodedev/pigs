@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildPRTree, renderPRTree, findStalePRs } from '../pr-chain.js';
-import type { PRInfo } from '../pr-chain.js';
+import { describe, it, expect } from 'bun:test';
+import { buildPRTree, renderPRTree, findStalePRs } from '../pr-chain.ts';
+import type { PRInfo } from '../pr-chain.ts';
 
 function makePR(overrides: Partial<PRInfo> & Pick<PRInfo, 'number' | 'headRefName' | 'baseRefName'>): PRInfo {
   return {

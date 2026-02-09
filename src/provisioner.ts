@@ -2,14 +2,14 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { SpritesClient } from '@fly/sprites';
-import type { PigsSettings } from './types.js';
-import { CLAUDE_HOOKS_CONFIG } from './notification-monitor.js';
+import type { PigsSettings } from './types.ts';
+import { CLAUDE_HOOKS_CONFIG } from './notification-monitor.ts';
 
 const SETTINGS_DIR = join(homedir(), '.pigs');
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json');
 const CLAUDE_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
 
-import { shellExec } from './shell-exec.js';
+import { shellExec } from './shell-exec.ts';
 
 const DEFAULT_CLAUDE_MD = `# Agent Instructions
 

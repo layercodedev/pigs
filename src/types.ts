@@ -9,6 +9,7 @@ export interface VM {
   displayLabel?: string;
   customLabel?: boolean;
   taskStartedAt?: number;
+  pendingAction?: string;
 }
 
 export interface PigsSettings {
@@ -22,7 +23,7 @@ export interface AppState {
   vms: VM[];
   activeVmIndex: number;
   sidebarSelectedIndex: number;
-  mode: 'normal' | 'confirm-delete' | 'creating' | 'console' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search' | 'rename' | 'dashboard' | 'queue' | 'broadcast-queue' | 'queue-viewer' | 'ralph-iterations' | 'ralph-prompt' | 'pr-chain';
+  mode: 'normal' | 'confirm-delete' | 'creating' | 'console' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search' | 'rename' | 'dashboard' | 'queue' | 'broadcast-queue' | 'queue-viewer' | 'ralph-iterations' | 'ralph-prompt' | 'pr-chain' | 'linear';
   searchFilter: string;
   sortMode: SortMode;
   settings: PigsSettings | null;

@@ -3,27 +3,25 @@
   "version": "0.1.0",
   "description": "TUI for managing Claude Code agent VMs on sprites.dev",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "src/index.ts",
   "bin": {
-    "pigs": "dist/index.js"
+    "pigs": "src/index.ts"
   },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
-    "test": "node --experimental-vm-modules node_modules/.bin/vitest run",
-    "test:integration": "node --experimental-vm-modules node_modules/.bin/vitest run --config vitest.integration.config.ts --sequence.concurrent=false"
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "typecheck": "bun x tsc --noEmit",
+    "test": "bun test",
+    "test:integration": "bun test src/__tests__/integration.test.ts --timeout 120000"
   },
   "dependencies": {
     "@fly/sprites": "^0.0.1",
-    "blessed": "^0.1.81"
+    "blessed": "^0.1.81",
+    "term.js": "^0.0.7"
   },
   "license": "MIT",
   "devDependencies": {
     "@types/blessed": "^0.1.25",
-    "@types/node": "^22.0.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "@types/bun": "^1.3.8"
   }
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { enqueue, dequeue, peek, getQueue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from '../prompt-queue.js';
+import { describe, it, expect, beforeEach } from 'bun:test';
+import { enqueue, dequeue, peek, getQueue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from '../prompt-queue.ts';
 
 describe('prompt-queue', () => {
   beforeEach(() => {

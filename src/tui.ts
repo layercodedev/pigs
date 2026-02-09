@@ -1,9 +1,9 @@
 import blessed from 'blessed';
-import type { AppState, SortMode, VM } from './types.js';
-import { historyUp, historyDown, resetCursor } from './prompt-history.js';
-import { getOutput } from './output-buffer.js';
-import { queueSize, getQueue } from './prompt-queue.js';
-import { stripAnsi } from './ansi.js';
+import type { AppState, SortMode, VM } from './types.ts';
+import { historyUp, historyDown, resetCursor } from './prompt-history.ts';
+import { getOutput } from './output-buffer.ts';
+import { queueSize, getQueue } from './prompt-queue.ts';
+import { stripAnsi } from './ansi.ts';
 
 /**
  * Find the index of the next VM that needs attention, starting after currentIndex.
@@ -216,7 +216,8 @@ export function createApp() {
   });
 
   // Terminal output area inside main view (for console sessions)
-  const terminal = blessed.box({
+  // Using blessed.terminal for proper terminal emulation (handles escape sequences, cursor, etc.)
+  const terminal = blessed.terminal({
     parent: mainView,
     top: 0,
     left: 0,
@@ -228,9 +229,29 @@ export function createApp() {
       style: { bg: 'gray' },
     },
     mouse: true,
-    keys: false,
+    keys: true,
     tags: false,
     hidden: true,
+    cursor: 'block',
+    terminal: 'xterm-256color',
+    // Handler to forward user input to the VM
+    handler: (data: Buffer) => {
+      if (state.mode !== 'console') return;
+      
+      const str = data.toString();
+      
+      // F10 key detaches from console (xterm F10 sequence: \x1b[21~)
+      if (str === '\x1b[21~') {
+        state.mode = 'normal';
+        statusBar.setContent(normalStatusText);
+        render();
+        handlers['console-detach']?.();
+        return;
+      }
+      
+      // Forward all other input to VM (including Escape, Ctrl+C, arrows, backspace, etc.)
+      handlers['console-input']?.(str);
+    },
   });
 
   // Status bar at the bottom
@@ -459,6 +480,7 @@ export function createApp() {
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
+      '  L (shift)     View Linear tasks (Space:select  Enter:claim)',
       '  g             View PR chain for selected VM\'s repo',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
@@ -719,6 +741,35 @@ export function createApp() {
     keys: true,
   });
 
+  // Linear tasks overlay (hidden by default)
+  const linearOverlay = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%-1',
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'blue' },
+      bg: 'black',
+      label: { fg: 'white', bold: true },
+    },
+    label: ' Linear Tasks ',
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    scrollbar: {
+      style: { bg: 'gray' },
+    },
+    mouse: true,
+    keys: true,
+  });
+
+  let linearSelectedIndex = 0;
+  let linearIssues: import('./linear-client.ts').LinearIssue[] = [];
+  let linearCheckedIds: Set<string> = new Set();
+
   // Queue viewer overlay (hidden by default)
   const queueViewerOverlay = blessed.box({
     parent: screen,
@@ -776,8 +827,8 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  i:dashboard  s:sort  /:search  ?:help  q:quit';
-  const consoleStatusText = ' Escape:detach  (input forwarded to VM)';
+  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  L:linear  i:dashboard  s:sort  /:search  ?:help  q:quit';
+  const consoleStatusText = ' F10:detach  (input forwarded to VM)';
 
   function getFilteredVMs(): VM[] {
     return sortVMs(filterVMs(state.vms, state.searchFilter), state.sortMode);
@@ -836,7 +887,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
+          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.pendingAction ? `{yellow-fg}${vm.pendingAction}{/yellow-fg}` : vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
         });
       });
@@ -926,21 +977,9 @@ export function createApp() {
     handlers[key] = handler;
   }
 
-  // Handle console mode input - forward raw data to the VM
-  screen.program.on('data', (data: string) => {
-    if (state.mode !== 'console') return;
-
-    // Escape key detaches from console
-    if (data === '\x1b' || data === '\x1b\x1b') {
-      state.mode = 'normal';
-      statusBar.setContent(normalStatusText);
-      render();
-      handlers['console-detach']?.();
-      return;
-    }
-
-    handlers['console-input']?.(data);
-  });
+  // Note: Console mode input is now handled by blessed.terminal's handler option
+  // This provides proper terminal emulation including support for escape sequences,
+  // arrow keys, backspace, Ctrl+C, etc. F10 is used to detach from console mode.
 
   let quitting = false;
 
@@ -985,6 +1024,10 @@ export function createApp() {
       hidePRChain();
       return;
     }
+    if (state.mode === 'linear') {
+      hideLinear();
+      return;
+    }
     if (state.mode === 'console' || state.mode === 'prompt' || state.mode === 'broadcast' || state.mode === 'bulk-create' || state.mode === 'search' || state.mode === 'rename' || state.mode === 'queue' || state.mode === 'broadcast-queue' || state.mode === 'ralph-iterations' || state.mode === 'ralph-prompt') {
       // In console/prompt/broadcast/bulk-create/search/queue mode, q goes to the input
       return;
@@ -1010,6 +1053,13 @@ export function createApp() {
   });
 
   screen.key(['j', 'down'], () => {
+    if (state.mode === 'linear') {
+      if (linearIssues.length > 0 && linearSelectedIndex < linearIssues.length - 1) {
+        linearSelectedIndex++;
+        handlers['linear-rerender']?.();
+      }
+      return;
+    }
     if (state.mode === 'pr-chain') {
       prChainOverlay.scroll(1);
       screen.render();
@@ -1041,6 +1091,13 @@ export function createApp() {
   });
 
   screen.key(['k', 'up'], () => {
+    if (state.mode === 'linear') {
+      if (linearIssues.length > 0 && linearSelectedIndex > 0) {
+        linearSelectedIndex--;
+        handlers['linear-rerender']?.();
+      }
+      return;
+    }
     if (state.mode === 'pr-chain') {
       prChainOverlay.scroll(-1);
       screen.render();
@@ -1070,7 +1127,34 @@ export function createApp() {
     }
   });
 
+  screen.key(['space'], () => {
+    if (state.mode === 'linear') {
+      if (linearIssues.length > 0 && linearIssues[linearSelectedIndex]) {
+        const id = linearIssues[linearSelectedIndex].id;
+        if (linearCheckedIds.has(id)) {
+          linearCheckedIds.delete(id);
+        } else {
+          linearCheckedIds.add(id);
+        }
+        handlers['linear-rerender']?.();
+      }
+      return;
+    }
+  });
+
   screen.key(['enter'], () => {
+    if (state.mode === 'linear') {
+      if (linearIssues.length === 0) return;
+      // If any checked, claim all checked; otherwise claim the cursor issue
+      const selected = linearCheckedIds.size > 0
+        ? linearIssues.filter(i => linearCheckedIds.has(i.id))
+        : linearIssues[linearSelectedIndex] ? [linearIssues[linearSelectedIndex]] : [];
+      if (selected.length > 0) {
+        handlers['linear-claim']?.(selected);
+        hideLinear();
+      }
+      return;
+    }
     if (state.mode !== 'normal') return;
     if (state.vms.length > 0 && state.sidebarSelectedIndex >= 0) {
       state.activeVmIndex = state.sidebarSelectedIndex;
@@ -1191,6 +1275,10 @@ export function createApp() {
   });
 
   screen.key(['r'], () => {
+    if (state.mode === 'linear') {
+      handlers['linear-refresh']?.();
+      return;
+    }
     if (state.mode === 'pr-chain') {
       handlers['pr-chain-refresh']?.();
       return;
@@ -1271,6 +1359,15 @@ export function createApp() {
     showPRChain();
   });
 
+  screen.key(['S-l'], () => {
+    if (state.mode === 'linear') {
+      hideLinear();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    showLinear();
+  });
+
   screen.key(['s'], () => {
     if (state.mode === 'pr-chain') {
       handlers['pr-chain-sync']?.();
@@ -1315,6 +1412,9 @@ export function createApp() {
     if (state.mode === 'pr-chain') {
       hidePRChain();
     }
+    if (state.mode === 'linear') {
+      hideLinear();
+    }
     if (state.mode === 'queue-viewer') {
       hideQueueViewer();
     }
@@ -1343,8 +1443,8 @@ export function createApp() {
    * Write output data to the terminal display.
    */
   function writeToTerminal(data: string) {
-    terminal.pushLine(data.replace(/\r?\n/g, '\n').replace(/\n$/, ''));
-    terminal.setScrollPerc(100);
+    // blessed.terminal handles escape sequences properly via its term.js integration
+    terminal.write(data);
     screen.render();
   }
 
@@ -1352,7 +1452,8 @@ export function createApp() {
    * Clear the terminal display.
    */
   function clearTerminal() {
-    terminal.setContent('');
+    // Send clear screen escape sequence
+    terminal.write('\x1b[2J\x1b[H');
     screen.render();
   }
 
@@ -1360,8 +1461,11 @@ export function createApp() {
    * Restore terminal display from an array of buffered output lines.
    */
   function restoreTerminal(lines: string[]) {
-    terminal.setContent(lines.join('\n'));
-    terminal.setScrollPerc(100);
+    // Clear first, then write all lines
+    terminal.write('\x1b[2J\x1b[H');
+    if (lines.length > 0) {
+      terminal.write(lines.join('\n') + '\n');
+    }
     screen.render();
   }
 
@@ -1371,6 +1475,7 @@ export function createApp() {
   function enterConsoleMode() {
     state.mode = 'console';
     statusBar.setContent(consoleStatusText);
+    terminal.focus();
     render();
   }
 
@@ -1638,6 +1743,33 @@ export function createApp() {
     prChainOverlay.setLabel(` ${label} `);
     prChainOverlay.setContent(content);
     prChainOverlay.setScrollPerc(0);
+    screen.render();
+  }
+
+  function showLinear() {
+    state.mode = 'linear';
+    linearSelectedIndex = 0;
+    linearCheckedIds = new Set();
+    linearOverlay.setContent('\n  {yellow-fg}Fetching Linear tasks...{/yellow-fg}');
+    linearOverlay.setLabel(' Linear Tasks ');
+    linearOverlay.show();
+    linearOverlay.focus();
+    statusBar.setContent(' Space:select  Enter:claim selected  L:close  r:refresh  j/k:navigate  Escape:close');
+    screen.render();
+    handlers['linear-open']?.();
+  }
+
+  function hideLinear() {
+    state.mode = 'normal';
+    linearOverlay.hide();
+    statusBar.setContent(normalStatusText);
+    render();
+  }
+
+  function renderLinearContent(content: string, label: string) {
+    linearOverlay.setLabel(` ${label} `);
+    linearOverlay.setContent(content);
+    linearOverlay.setScrollPerc(0);
     screen.render();
   }
 
@@ -1948,11 +2080,11 @@ export function createApp() {
    * Show a read-only preview of buffered output lines in the terminal view.
    */
   function showPreview(lines: string[]) {
+    // Clear terminal and write preview content
+    terminal.write('\x1b[2J\x1b[H');
     if (lines.length > 0) {
-      terminal.setContent(lines.map(l => stripAnsi(l)).join('\n'));
-      terminal.setScrollPerc(100);
-    } else {
-      terminal.setContent('');
+      // Write lines to terminal (blessed.terminal handles ANSI codes properly)
+      terminal.write(lines.join('\n') + '\n');
     }
     screen.render();
   }
@@ -1991,6 +2123,20 @@ export function createApp() {
       if (state.mode === 'pr-chain') {
         renderPRChainContent(content, label);
       }
+    },
+    renderLinear(content: string, label: string) {
+      if (state.mode === 'linear') {
+        renderLinearContent(content, label);
+      }
+    },
+    setLinearIssues(issues: import('./linear-client.ts').LinearIssue[]) {
+      linearIssues = issues;
+    },
+    getLinearSelectedIndex() {
+      return linearSelectedIndex;
+    },
+    getLinearCheckedIds() {
+      return linearCheckedIds;
     },
     resetStatus() {
       if (state.mode === 'console') {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach } from 'bun:test';
 import {
   attachConsole,
   detachConsole,
@@ -8,7 +8,7 @@ import {
   writeToConsole,
   detachAll,
   getActiveSessionNames,
-} from '../console-session.js';
+} from '../console-session.ts';
 
 // We need to reset the module's internal sessions map between tests
 // by destroying all sessions
@@ -20,15 +20,15 @@ function cleanupSessions() {
 
 function createMockSpriteCommand() {
   const stdout = {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
+    on: jest.fn(),
+    removeAllListeners: jest.fn(),
   };
   const stderr = {
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
+    on: jest.fn(),
+    removeAllListeners: jest.fn(),
   };
   const stdin = {
-    write: vi.fn().mockReturnValue(true),
+    write: jest.fn().mockReturnValue(true),
   };
   // spawn() auto-starts and emits 'spawn' when ready
   const onHandlers = new Map<string, Function>();
@@ -36,17 +36,17 @@ function createMockSpriteCommand() {
     stdout,
     stderr,
     stdin,
-    kill: vi.fn(),
-    resize: vi.fn(),
-    wait: vi.fn().mockResolvedValue(0),
-    on: vi.fn((event: string, handler: Function) => {
+    kill: jest.fn(),
+    resize: jest.fn(),
+    wait: jest.fn().mockResolvedValue(0),
+    on: jest.fn((event: string, handler: Function) => {
       onHandlers.set(event, handler);
       // Auto-emit 'spawn' on next tick to simulate SDK behavior
       if (event === 'spawn') {
         Promise.resolve().then(() => handler());
       }
     }),
-    exitCode: vi.fn().mockReturnValue(-1),
+    exitCode: jest.fn().mockReturnValue(-1),
     _onHandlers: onHandlers,
   };
 }
@@ -54,8 +54,8 @@ function createMockSpriteCommand() {
 function createMockClient(mockCommand?: ReturnType<typeof createMockSpriteCommand>) {
   const cmd = mockCommand ?? createMockSpriteCommand();
   return {
-    sprite: vi.fn().mockReturnValue({
-      spawn: vi.fn().mockReturnValue(cmd),
+    sprite: jest.fn().mockReturnValue({
+      spawn: jest.fn().mockReturnValue(cmd),
     }),
     _mockCommand: cmd,
   } as any;
@@ -113,15 +113,16 @@ describe('console-session', () => {
   });
 
   describe('detachConsole', () => {
-    it('should remove stdout and stderr listeners', async () => {
+    it('should be a no-op (listeners continue buffering while detached)', async () => {
       const mockCmd = createMockSpriteCommand();
       const client = createMockClient(mockCmd);
 
       await attachConsole(client, 'pigs-abc', 80, 24);
       detachConsole('pigs-abc');
 
-      expect(mockCmd.stdout.removeAllListeners).toHaveBeenCalledWith('data');
-      expect(mockCmd.stderr.removeAllListeners).toHaveBeenCalledWith('data');
+      // Listeners should not be removed - they continue buffering
+      expect(mockCmd.stdout.removeAllListeners).not.toHaveBeenCalled();
+      expect(mockCmd.stderr.removeAllListeners).not.toHaveBeenCalled();
     });
 
     it('should be safe to call for non-existent session', () => {
@@ -203,7 +204,7 @@ describe('console-session', () => {
   });
 
   describe('detachAll', () => {
-    it('should detach from all sessions', async () => {
+    it('should be safe to call (listeners continue buffering)', async () => {
       const mockCmd1 = createMockSpriteCommand();
       const mockCmd2 = createMockSpriteCommand();
       const client1 = createMockClient(mockCmd1);
@@ -213,8 +214,9 @@ describe('console-session', () => {
       await attachConsole(client2, 'pigs-def', 80, 24);
       detachAll();
 
-      expect(mockCmd1.stdout.removeAllListeners).toHaveBeenCalledWith('data');
-      expect(mockCmd2.stdout.removeAllListeners).toHaveBeenCalledWith('data');
+      // Listeners should not be removed - they continue buffering
+      expect(mockCmd1.stdout.removeAllListeners).not.toHaveBeenCalled();
+      expect(mockCmd2.stdout.removeAllListeners).not.toHaveBeenCalled();
     });
   });
 

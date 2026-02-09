@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildDashboardCell } from '../tui.js';
-import type { VM } from '../types.js';
+import { describe, it, expect } from 'bun:test';
+import { buildDashboardCell } from '../tui.ts';
+import type { VM } from '../types.ts';
 
 function makeVM(overrides: Partial<VM> = {}): VM {
   return {

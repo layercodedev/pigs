@@ -1,7 +1,7 @@
 import { SpritesClient } from '@fly/sprites';
 import type { Sprite } from '@fly/sprites';
-import type { VM } from './types.js';
-import { defaultLabel } from './notification-monitor.js';
+import type { VM } from './types.ts';
+import { defaultLabel } from './notification-monitor.ts';
 
 const VM_PREFIX = 'pigs-';
 

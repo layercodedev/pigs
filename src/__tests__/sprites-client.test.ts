@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { createSpritesClient, spriteToVM, generateVMName, listVMs, createVM, deleteVM } from '../sprites-client.js';
+import { describe, it, expect, jest, beforeEach, afterEach } from 'bun:test';
+import { createSpritesClient, spriteToVM, generateVMName, listVMs, createVM, deleteVM } from '../sprites-client.ts';
 
 describe('sprites-client', () => {
   const originalToken = process.env.SPRITES_TOKEN;
@@ -132,7 +132,7 @@ describe('listVMs', () => {
       { name: 'pigs-def', id: 'id-2', status: 'cold', createdAt: new Date('2026-01-15T11:00:00Z'), client: {} },
     ];
     const mockClient = {
-      listAllSprites: vi.fn().mockResolvedValue(mockSprites),
+      listAllSprites: jest.fn().mockResolvedValue(mockSprites),
     } as any;
 
     const vms = await listVMs(mockClient);
@@ -147,7 +147,7 @@ describe('listVMs', () => {
 
   it('should return empty array when no VMs exist', async () => {
     const mockClient = {
-      listAllSprites: vi.fn().mockResolvedValue([]),
+      listAllSprites: jest.fn().mockResolvedValue([]),
     } as any;
 
     const vms = await listVMs(mockClient);
@@ -165,7 +165,7 @@ describe('createVM', () => {
       client: {},
     };
     const mockClient = {
-      createSprite: vi.fn().mockResolvedValue(mockSprite),
+      createSprite: jest.fn().mockResolvedValue(mockSprite),
     } as any;
 
     const vm = await createVM(mockClient);
@@ -186,7 +186,7 @@ describe('createVM', () => {
       client: {},
     };
     const mockClient = {
-      createSprite: vi.fn().mockResolvedValue(mockSprite),
+      createSprite: jest.fn().mockResolvedValue(mockSprite),
     } as any;
 
     const vm = await createVM(mockClient, 'pigs-custom');
@@ -199,7 +199,7 @@ describe('createVM', () => {
 describe('deleteVM', () => {
   it('should delete VM by name', async () => {
     const mockClient = {
-      deleteSprite: vi.fn().mockResolvedValue(undefined),
+      deleteSprite: jest.fn().mockResolvedValue(undefined),
     } as any;
 
     await deleteVM(mockClient, 'pigs-abc123');

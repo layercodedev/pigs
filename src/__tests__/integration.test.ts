@@ -10,10 +10,10 @@
  *
  * Requires SPRITES_TOKEN in the environment (loaded from ~/.profile).
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import type { SpritesClient } from '@fly/sprites';
-import type { VM } from '../types.js';
-import { shellExec } from '../shell-exec.js';
+import type { VM } from '../types.ts';
+import { shellExec } from '../shell-exec.ts';
 
 // Module imports — these are the real functions the TUI calls
 import {
@@ -23,9 +23,9 @@ import {
   deleteVM,
   spriteToVM,
   generateVMName,
-} from '../sprites-client.js';
+} from '../sprites-client.ts';
 
-import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.js';
+import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.ts';
 
 import {
   attachConsole,
@@ -33,20 +33,20 @@ import {
   getSession,
   destroyConsole,
   resizeConsole,
-} from '../console-session.js';
+} from '../console-session.ts';
 
 import {
   _checkSignal,
   _checkGitLabel,
   defaultLabel,
   SIGNAL_FILE,
-} from '../notification-monitor.js';
+} from '../notification-monitor.ts';
 
 import {
   installSSHKey,
   ensureSSHKey,
   createProxyServer,
-} from '../mount-session.js';
+} from '../mount-session.ts';
 
 // ---------------------------------------------------------------------------
 // Shared state across all tests
@@ -54,6 +54,40 @@ import {
 let client: SpritesClient;
 let testVM: VM;
 const TEST_VM_PREFIX = 'pigs-itest-';
+
+// ---------------------------------------------------------------------------
+// Cleanup helper (shared by afterAll + signal handlers)
+// ---------------------------------------------------------------------------
+async function cleanupAllTestVMs() {
+  try {
+    const allVMs = await client.listAllSprites(TEST_VM_PREFIX);
+    for (const sprite of allVMs) {
+      try {
+        destroyConsole(sprite.name);
+      } catch (e) {
+        console.warn(`[itest] failed to destroy console for ${sprite.name}:`, e);
+      }
+      try {
+        await client.deleteSprite(sprite.name);
+        console.warn(`[itest] deleted VM ${sprite.name}`);
+      } catch (e) {
+        console.warn(`[itest] failed to delete VM ${sprite.name}:`, e);
+      }
+    }
+  } catch (e) {
+    console.warn('[itest] cleanup failed to list VMs:', e);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Process signal handlers — ensure VMs are cleaned up on Ctrl+C / kill
+// ---------------------------------------------------------------------------
+function handleSignal(signal: string) {
+  console.warn(`[itest] received ${signal}, cleaning up VMs...`);
+  cleanupAllTestVMs().finally(() => process.exit(1));
+}
+process.on('SIGINT', () => handleSignal('SIGINT'));
+process.on('SIGTERM', () => handleSignal('SIGTERM'));
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
@@ -66,23 +100,14 @@ beforeAll(async () => {
     );
   }
   client = createSpritesClient();
-}, 10_000);
+
+  // Delete any stale pigs-itest-* VMs left over from previous failed runs
+  await cleanupAllTestVMs();
+}, 60_000);
 
 afterAll(async () => {
   // Best-effort cleanup: delete our test VM and any leaked itest VMs
-  try {
-    const allVMs = await client.listAllSprites(TEST_VM_PREFIX);
-    for (const sprite of allVMs) {
-      try {
-        destroyConsole(sprite.name);
-      } catch { /* ignore */ }
-      try {
-        await client.deleteSprite(sprite.name);
-      } catch { /* ignore */ }
-    }
-  } catch {
-    // If cleanup fails, that's acceptable — don't break the test run
-  }
+  await cleanupAllTestVMs();
 }, 60_000);
 
 // ---------------------------------------------------------------------------
@@ -91,7 +116,7 @@ afterAll(async () => {
 describe('SpritesClient (live)', () => {
   it('creates a client with the real token', () => {
     expect(client).toBeDefined();
-    expect(client.token).toBe(process.env.SPRITES_TOKEN);
+    expect(client.token).toBe(process.env.SPRITES_TOKEN!);
     expect(client.baseURL).toMatch(/^https?:\/\//);
   });
 });

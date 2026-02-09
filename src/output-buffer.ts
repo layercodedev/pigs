@@ -13,7 +13,14 @@ export function appendOutput(vmName: string, data: string): void {
     lines = [];
     buffers.set(vmName, lines);
   }
-  const newLines = data.replace(/\r?\n/g, '\n').replace(/\n$/, '').split('\n');
+  const normalized = data.replace(/\r?\n/g, '\n');
+  const newLines = normalized.split('\n');
+  // Append the first fragment to the last buffered line (partial line continuation).
+  // The last buffered line is partial (incomplete) only if it's non-empty —
+  // an empty string at the end of lines[] means the previous chunk ended with \n.
+  if (lines.length > 0 && newLines.length > 0 && lines[lines.length - 1] !== '') {
+    lines[lines.length - 1] += newLines.shift();
+  }
   lines.push(...newLines);
   if (lines.length > MAX_LINES) {
     buffers.set(vmName, lines.slice(lines.length - MAX_LINES));

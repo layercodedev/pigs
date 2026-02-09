@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, jest, beforeEach, mock, type Mock } from 'bun:test';
 import {
   loadHistory,
   addToHistory,
@@ -7,22 +7,22 @@ import {
   historyDown,
   getHistory,
   _clearHistory,
-} from '../prompt-history.js';
+} from '../prompt-history.ts';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 
 // Mock node:fs/promises
-vi.mock('node:fs/promises', () => ({
-  readFile: vi.fn(),
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+mock.module('node:fs/promises', () => ({
+  readFile: jest.fn(),
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  writeFile: jest.fn().mockResolvedValue(undefined),
 }));
 
-const mockedReadFile = vi.mocked(readFile);
-const mockedWriteFile = vi.mocked(writeFile);
+const mockedReadFile = readFile as Mock<typeof readFile>;
+const mockedWriteFile = writeFile as Mock<typeof writeFile>;
 
 beforeEach(() => {
   _clearHistory();
-  vi.clearAllMocks();
+  jest.clearAllMocks();
 });
 
 describe('prompt-history', () => {

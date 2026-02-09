@@ -1,7 +1,7 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
-import { createApp } from './tui.js';
-import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.js';
+import { createApp } from './tui.ts';
+import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.ts';
 import {
   attachConsole,
   detachConsole,
@@ -10,15 +10,17 @@ import {
   writeToConsole,
   detachAll,
   getSession,
-} from './console-session.js';
-import { loadSettings, provisionVM, reprovisionVM } from './provisioner.js';
-import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.js';
-import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.js';
-import { loadHistory, addToHistory } from './prompt-history.js';
-import { appendOutput, getOutput, clearOutput } from './output-buffer.js';
-import { exportLog } from './log-export.js';
-import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.js';
-import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.js';
+} from './console-session.ts';
+import { loadSettings, provisionVM, reprovisionVM } from './provisioner.ts';
+import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.ts';
+import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.ts';
+import { loadHistory, addToHistory } from './prompt-history.ts';
+import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
+import { exportLog } from './log-export.ts';
+import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.ts';
+import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
+import { fetchMyIssues, renderLinearIssues, clearLinearCache, startIssue } from './linear-client.ts';
+import type { LinearIssue } from './linear-client.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
@@ -330,6 +332,8 @@ async function main() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     app.setStatusMessage(`Deleting VM: ${vm.name}...`);
+    vm.pendingAction = 'deleting...';
+    app.render();
     try {
       if (isMounted(vm.name)) {
         await unmountVM(vm.name);
@@ -347,6 +351,7 @@ async function main() {
       }
       app.setStatusMessage('VM deleted');
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Error deleting VM: ${err.message}`);
     }
     app.render();
@@ -365,6 +370,8 @@ async function main() {
 
     // Delete all VMs in parallel
     const deletePromises = [...state.vms].map(async (vm) => {
+      vm.pendingAction = 'deleting...';
+      app.render();
       try {
         if (isMounted(vm.name)) {
           await unmountVM(vm.name);
@@ -378,6 +385,7 @@ async function main() {
         app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
         app.render();
       } catch {
+        vm.pendingAction = undefined;
         failed++;
       }
     });
@@ -401,14 +409,18 @@ async function main() {
     if (!vm || vm.provisioningStatus !== 'done') return;
 
     app.setStatusMessage(`Re-provisioning ${vm.displayLabel ?? vm.name}...`);
+    vm.pendingAction = 're-provisioning...';
+    app.render();
     try {
       // Reload settings from disk
       state.settings = await loadSettings();
       await reprovisionVM(client, vm.name, (msg) => {
         app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
       });
+      vm.pendingAction = undefined;
       app.setStatusMessage(`${vm.displayLabel ?? vm.name} re-provisioned`);
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Re-provision failed: ${err.message}`);
     }
     app.render();
@@ -435,12 +447,16 @@ async function main() {
     let failed = 0;
 
     const promises = targets.map(async (vm) => {
+      vm.pendingAction = 're-provisioning...';
+      app.render();
       try {
         await reprovisionVM(client, vm.name);
+        vm.pendingAction = undefined;
         done++;
         app.setStatusMessage(`Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ''}...`);
         app.render();
       } catch {
+        vm.pendingAction = undefined;
         failed++;
       }
     });
@@ -674,6 +690,126 @@ async function main() {
     }
   });
 
+  // Linear tasks open handler
+  app.onKey('linear-open', async () => {
+    try {
+      const issues = await fetchMyIssues();
+      app.setLinearIssues(issues);
+      const width = (app.screen.width as number) - 4;
+      const checkedIds = app.getLinearCheckedIds();
+      const lines = renderLinearIssues(issues, 0, width, checkedIds);
+      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+    } catch (err: any) {
+      const msg = String(err.message || err);
+      if (msg.includes('LINEAR_API_KEY')) {
+        app.renderLinear('\n  {red-fg}LINEAR_API_KEY environment variable is not set{/red-fg}\n\n  Get your API key from Linear Settings > API > Personal API keys', 'Linear Tasks');
+      } else {
+        app.renderLinear(`\n  {red-fg}Error: ${msg}{/red-fg}`, 'Linear Tasks');
+      }
+    }
+  });
+
+  // Linear tasks refresh handler
+  app.onKey('linear-refresh', async () => {
+    clearLinearCache();
+    app.renderLinear('\n  {yellow-fg}Refreshing Linear tasks...{/yellow-fg}', 'Linear Tasks');
+    try {
+      const issues = await fetchMyIssues();
+      app.setLinearIssues(issues);
+      const width = (app.screen.width as number) - 4;
+      const checkedIds = app.getLinearCheckedIds();
+      const lines = renderLinearIssues(issues, 0, width, checkedIds);
+      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+    } catch (err: any) {
+      app.renderLinear(`\n  {red-fg}Error: ${String(err.message || err)}{/red-fg}`, 'Linear Tasks');
+    }
+  });
+
+  // Linear re-render handler (when selection changes with j/k or space toggle)
+  app.onKey('linear-rerender', async () => {
+    try {
+      const issues = await fetchMyIssues(); // returns cached data
+      const width = (app.screen.width as number) - 4;
+      const idx = app.getLinearSelectedIndex();
+      const checkedIds = app.getLinearCheckedIds();
+      const lines = renderLinearIssues(issues, idx, width, checkedIds);
+      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+    } catch { /* ignore */ }
+  });
+
+  // Linear claim handler - create VMs, set issues to In Progress, send as prompts in parallel
+  app.onKey('linear-claim', async (issues: LinearIssue[]) => {
+    const count = issues.length;
+    const label = count === 1 ? issues[0].identifier : `${count} tasks`;
+    app.setStatusMessage(`Claiming ${label}...`);
+
+    async function claimSingleIssue(issue: LinearIssue): Promise<{ ok: boolean; identifier: string }> {
+      // Set issue to In Progress in Linear
+      try {
+        await startIssue(issue.id);
+      } catch (err: any) {
+        return { ok: false, identifier: issue.identifier };
+      }
+
+      // Create a new VM
+      try {
+        const vm = await createVM(client);
+        vm.provisioningStatus = 'pending';
+        vm.displayLabel = issue.identifier;
+        vm.customLabel = true;
+        state.vms.push(vm);
+        app.render();
+
+        // Provision VM
+        vm.provisioningStatus = 'provisioning';
+        app.render();
+        try {
+          await provisionVM(client, vm.name, state.settings ?? undefined, () => {});
+          vm.provisioningStatus = 'done';
+        } catch {
+          vm.provisioningStatus = 'failed';
+          app.render();
+          return { ok: false, identifier: issue.identifier };
+        }
+
+        // Send the task as a prompt using the Linear branch name
+        const { cols, rows } = app.getTerminalSize();
+        await attachConsole(client, vm.name, cols, rows);
+        clearOutput(vm.name);
+        connectSessionOutput(vm.name);
+        vm.taskStartedAt = Date.now();
+
+        const desc = issue.description ? `\n\nDescription:\n${issue.description}` : '';
+        const prompt = `You are working on Linear issue ${issue.identifier}: "${issue.title}"${desc}\n\nIMPORTANT: Use the git branch name "${issue.branchName}" for your work so that PRs automatically link to this Linear issue. Create this branch with: git checkout -b ${issue.branchName}\n\nPlease implement this task.`;
+        const escapedPrompt = prompt.replace(/'/g, "'\\''");
+        writeToConsole(vm.name, `claude -p '${escapedPrompt}'\n`);
+
+        app.render();
+        return { ok: true, identifier: issue.identifier };
+      } catch {
+        return { ok: false, identifier: issue.identifier };
+      }
+    }
+
+    const results = await Promise.all(issues.map(claimSingleIssue));
+    const succeeded = results.filter(r => r.ok);
+    const failed = results.filter(r => !r.ok);
+
+    // Select the last created VM
+    if (state.vms.length > 0) {
+      state.sidebarSelectedIndex = state.vms.length - 1;
+      state.activeVmIndex = state.vms.length - 1;
+    }
+
+    if (failed.length === 0) {
+      app.setStatusMessage(`${succeeded.length} task${succeeded.length !== 1 ? 's' : ''} claimed and sent to agents`);
+    } else {
+      app.setStatusMessage(`${succeeded.length} claimed, ${failed.length} failed (${failed.map(f => f.identifier).join(', ')})`);
+    }
+    app.render();
+    setTimeout(() => app.resetStatus(), 3000);
+  });
+
   // Mount VM filesystem handler
   app.onKey('mount', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
@@ -684,10 +820,13 @@ async function main() {
       return;
     }
     app.setStatusMessage(`Mounting ${vm.name}...`);
+    vm.pendingAction = 'mounting...';
+    app.render();
     try {
       const mountPath = await mountVM(client, vm.name, (msg) => {
         app.setStatusMessage(`${vm.name}: ${msg}`);
       });
+      vm.pendingAction = undefined;
       vm.mountPath = mountPath;
       app.setStatusMessage(`Mounted ${vm.name} at ${mountPath}`);
 
@@ -702,6 +841,7 @@ async function main() {
         });
       }
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Mount failed: ${err.message}`);
     }
     app.render();
@@ -934,11 +1074,15 @@ async function main() {
       return;
     }
     app.setStatusMessage(`Unmounting ${vm.name}...`);
+    vm.pendingAction = 'unmounting...';
+    app.render();
     try {
       await unmountVM(vm.name);
+      vm.pendingAction = undefined;
       vm.mountPath = undefined;
       app.setStatusMessage(`Unmounted ${vm.name}`);
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Unmount failed: ${err.message}`);
     }
     app.render();

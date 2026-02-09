@@ -1,24 +1,24 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.js';
+import { describe, it, expect, jest, beforeEach, afterEach, mock, type Mock } from 'bun:test';
+import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.ts';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 // Mock node:fs/promises
-vi.mock('node:fs/promises', () => ({
-  readFile: vi.fn(),
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  writeFile: vi.fn().mockResolvedValue(undefined),
+mock.module('node:fs/promises', () => ({
+  readFile: jest.fn(),
+  mkdir: jest.fn().mockResolvedValue(undefined),
+  writeFile: jest.fn().mockResolvedValue(undefined),
 }));
 
-const mockedReadFile = vi.mocked(readFile);
-const mockedMkdir = vi.mocked(mkdir);
-const mockedWriteFile = vi.mocked(writeFile);
+const mockedReadFile = readFile as Mock<typeof readFile>;
+const mockedMkdir = mkdir as Mock<typeof mkdir>;
+const mockedWriteFile = writeFile as Mock<typeof writeFile>;
 
 function createMockSprite() {
   const mock = {
-    exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
-    execFile: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
+    exec: jest.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
+    execFile: jest.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
   };
   return mock;
 }
@@ -26,14 +26,14 @@ function createMockSprite() {
 function createMockClient(mockSprite?: ReturnType<typeof createMockSprite>) {
   const sprite = mockSprite ?? createMockSprite();
   return {
-    sprite: vi.fn().mockReturnValue(sprite),
+    sprite: jest.fn().mockReturnValue(sprite),
     _mockSprite: sprite,
   } as any;
 }
 
 describe('loadSettings', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('should return parsed settings when file exists', async () => {
@@ -91,7 +91,7 @@ describe('loadSettings', () => {
 
 describe('provisionVM', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('should call shellExec for provisioning script', async () => {
@@ -201,7 +201,7 @@ describe('provisionVM', () => {
 
 describe('reprovisionVM', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('should only run two exec calls (CLAUDE.md + hooks, no install)', async () => {

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { sortVMs, nextSortMode } from '../tui.js';
-import type { VM } from '../types.js';
+import { describe, it, expect } from 'bun:test';
+import { sortVMs, nextSortMode } from '../tui.ts';
+import type { VM } from '../types.ts';
 
 function makeVM(overrides: Partial<VM> & { name: string }): VM {
   return {
