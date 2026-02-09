@@ -1,9 +1,5 @@
 #!/usr/bin/env bun
 
-// Use a standard terminal type to avoid terminfo parsing issues with modern terminals
-// (e.g., xterm-ghostty has RGB underline capabilities that blessed can't parse)
-process.env.TERM = process.env.TERM?.includes('ghostty') ? 'xterm-256color' : (process.env.TERM || 'xterm-256color');
-
 import { createApp } from './tui.ts';
 import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.ts';
 import {
@@ -188,9 +184,13 @@ async function main() {
     clearAttention(vm);
 
     app.setStatusMessage(`Connecting to ${vm.name}...`);
+    vm.pendingAction = 'connecting...';
+    vm.lastError = undefined;
+    app.render();
     try {
       const { cols, rows } = app.getTerminalSize();
       await attachConsole(client, vm.name, cols, rows);
+      vm.pendingAction = undefined;
       connectSessionOutput(vm.name);
       // Restore buffered output for this VM
       const buffered = getOutput(vm.name);
@@ -201,9 +201,12 @@ async function main() {
       }
       app.enterConsoleMode();
     } catch (err: any) {
+      vm.pendingAction = undefined;
+      vm.lastError = err.message || String(err);
       app.setStatusMessage(`Error connecting: ${err.message}`);
       setTimeout(() => app.resetStatus(), 3000);
     }
+    app.render();
   });
 
   // Console input handler - forward keystrokes to VM stdin
@@ -1110,54 +1113,28 @@ async function main() {
     const error = app.getSelectedVMError();
     if (!error) return;
 
-    try {
-      // Use pbcopy for macOS, xclip for Linux
-      const isMac = process.platform === 'darwin';
-      if (isMac) {
-        const proc = execFile('pbcopy', [], (err) => {
-          if (err) {
-            app.setStatusMessage(`Failed to copy error: ${err.message}`);
-            setTimeout(() => app.resetStatus(), 3000);
-            return;
-          }
-          app.setStatusMessage('Error copied to clipboard');
-          setTimeout(() => app.resetStatus(), 2000);
+    // Try clipboard commands in order: pbcopy (macOS), xclip, xsel (Linux)
+    const commands: [string, string[]][] = process.platform === 'darwin'
+      ? [['pbcopy', []]]
+      : [['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]];
+
+    for (const [cmd, args] of commands) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const proc = execFile(cmd, args, (err) => err ? reject(err) : resolve());
+          proc.stdin?.write(error);
+          proc.stdin?.end();
         });
-        if (proc.stdin) {
-          proc.stdin.write(error);
-          proc.stdin.end();
-        }
-      } else {
-        const proc = execFile('xclip', ['-selection', 'clipboard'], (err) => {
-          if (err) {
-            // Try xsel as fallback
-            const proc2 = execFile('xsel', ['--clipboard', '--input'], (err2) => {
-              if (err2) {
-                app.setStatusMessage(`Failed to copy error: ${err2.message}`);
-                setTimeout(() => app.resetStatus(), 3000);
-                return;
-              }
-              app.setStatusMessage('Error copied to clipboard');
-              setTimeout(() => app.resetStatus(), 2000);
-            });
-            if (proc2.stdin) {
-              proc2.stdin.write(error);
-              proc2.stdin.end();
-            }
-            return;
-          }
-          app.setStatusMessage('Error copied to clipboard');
-          setTimeout(() => app.resetStatus(), 2000);
-        });
-        if (proc.stdin) {
-          proc.stdin.write(error);
-          proc.stdin.end();
-        }
+        app.setStatusMessage('Error copied to clipboard');
+        setTimeout(() => app.resetStatus(), 2000);
+        return;
+      } catch {
+        continue;
       }
-    } catch (err: any) {
-      app.setStatusMessage(`Failed to copy error: ${err.message}`);
-      setTimeout(() => app.resetStatus(), 3000);
     }
+
+    app.setStatusMessage('Failed to copy error: no clipboard command available');
+    setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Quit handler - detach all sessions gracefully

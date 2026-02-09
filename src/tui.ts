@@ -156,11 +156,20 @@ export function buildDashboardCell(vm: VM, lastLine: string, width: number): str
 }
 
 export function createApp() {
+  // Override TERM for blessed only — ghostty's RGB underline terminfo causes parse errors
+  const originalTerm = process.env.TERM;
+  if (process.env.TERM?.includes('ghostty')) {
+    process.env.TERM = 'xterm-256color';
+  }
+
   const screen = blessed.screen({
     smartCSR: true,
     title: 'pigs - Claude Agent VM Manager',
     fullUnicode: true,
   });
+
+  // Restore original TERM so child processes inherit the real terminal type
+  process.env.TERM = originalTerm;
 
   const state: AppState = {
     vms: [],
@@ -886,6 +895,7 @@ export function createApp() {
         style: { fg: 'gray' },
       });
     } else {
+      let currentTop = 0;
       displayed.forEach((vm, i) => {
         const realIndex = state.vms.indexOf(vm);
         const isActive = realIndex === state.activeVmIndex;
@@ -902,12 +912,15 @@ export function createApp() {
         const qCount = queueSize(vm.name);
         const queueLabel = qCount > 0 ? ` {magenta-fg}[q:${qCount}]{/magenta-fg}` : '';
 
+        // Selected cards need extra height to fit both lines inside the border
+        const cardHeight = isSelected ? 4 : 3;
+
         blessed.box({
           parent: sidebar,
-          top: i * 3,
+          top: currentTop,
           left: 1,
           right: 1,
-          height: 3,
+          height: cardHeight,
           border: isSelected ? { type: 'line' } : undefined,
           style: {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
@@ -916,6 +929,8 @@ export function createApp() {
           content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.pendingAction ? `{yellow-fg}${vm.pendingAction}{/yellow-fg}` : vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
         });
+
+        currentTop += cardHeight;
       });
     }
     screen.render();
@@ -943,28 +958,31 @@ export function createApp() {
       terminal.hide();
       pendingActionDisplay.hide();
       errorDisplay.hide();
+      terminal.top = 0;
     }
     screen.render();
   }
 
   function updatePendingAndErrorDisplay(vm: VM) {
-    // Show pending action if present
-    if (vm.pendingAction) {
-      pendingActionDisplay.setContent(`{yellow-fg}⏳ ${vm.pendingAction}{/yellow-fg}`);
-      pendingActionDisplay.show();
-    } else {
-      pendingActionDisplay.hide();
-    }
-
-    // Show error if present (take priority over pending action)
     if (vm.lastError) {
+      // Error takes priority — show error, hide pending, push terminal down
       const errorLines = vm.lastError.split('\n').slice(0, 2);
       const truncated = errorLines.join('\n') + (vm.lastError.split('\n').length > 2 ? '...' : '');
       errorDisplay.setContent(`{red-fg}{bold}Error:{/bold}{/red-fg} ${truncated}\n{gray-fg}Press E to copy full error to clipboard{/gray-fg}`);
       errorDisplay.show();
       pendingActionDisplay.hide();
-    } else if (!vm.pendingAction) {
+      terminal.top = 3;
+    } else if (vm.pendingAction) {
+      // Pending action — show pending, hide error, push terminal down
+      pendingActionDisplay.setContent(`{yellow-fg}⏳ ${vm.pendingAction}{/yellow-fg}`);
+      pendingActionDisplay.show();
       errorDisplay.hide();
+      terminal.top = 1;
+    } else {
+      // Nothing to show — hide both, restore terminal position
+      pendingActionDisplay.hide();
+      errorDisplay.hide();
+      terminal.top = 0;
     }
   }
 
