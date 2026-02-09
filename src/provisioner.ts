@@ -21,7 +21,7 @@ const PROVISION_SCRIPT = [
   // Install Claude Code globally via npm (needs sudo for global install)
   'if ! command -v claude &>/dev/null; then sudo npm install -g @anthropic-ai/claude-code; fi',
   // Ensure SSH server is installed and running
-  'if ! command -v sshd &>/dev/null || ! command -v tmux &>/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq openssh-server tmux; fi',
+  'if ! command -v sshd &>/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq openssh-server; fi',
   'if ! pgrep -x sshd &>/dev/null; then sudo mkdir -p /run/sshd && sudo /usr/sbin/sshd; fi',
 ].join('\n');
 
