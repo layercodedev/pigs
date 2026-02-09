@@ -9,6 +9,7 @@ export interface VM {
   displayLabel?: string;
   customLabel?: boolean;
   taskStartedAt?: number;
+  pendingAction?: string;
 }
 
 export interface PigsSettings {

@@ -332,6 +332,8 @@ async function main() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     app.setStatusMessage(`Deleting VM: ${vm.name}...`);
+    vm.pendingAction = 'deleting...';
+    app.render();
     try {
       if (isMounted(vm.name)) {
         await unmountVM(vm.name);
@@ -349,6 +351,7 @@ async function main() {
       }
       app.setStatusMessage('VM deleted');
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Error deleting VM: ${err.message}`);
     }
     app.render();
@@ -367,6 +370,8 @@ async function main() {
 
     // Delete all VMs in parallel
     const deletePromises = [...state.vms].map(async (vm) => {
+      vm.pendingAction = 'deleting...';
+      app.render();
       try {
         if (isMounted(vm.name)) {
           await unmountVM(vm.name);
@@ -380,6 +385,7 @@ async function main() {
         app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
         app.render();
       } catch {
+        vm.pendingAction = undefined;
         failed++;
       }
     });
@@ -403,14 +409,18 @@ async function main() {
     if (!vm || vm.provisioningStatus !== 'done') return;
 
     app.setStatusMessage(`Re-provisioning ${vm.displayLabel ?? vm.name}...`);
+    vm.pendingAction = 're-provisioning...';
+    app.render();
     try {
       // Reload settings from disk
       state.settings = await loadSettings();
       await reprovisionVM(client, vm.name, (msg) => {
         app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
       });
+      vm.pendingAction = undefined;
       app.setStatusMessage(`${vm.displayLabel ?? vm.name} re-provisioned`);
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Re-provision failed: ${err.message}`);
     }
     app.render();
@@ -437,12 +447,16 @@ async function main() {
     let failed = 0;
 
     const promises = targets.map(async (vm) => {
+      vm.pendingAction = 're-provisioning...';
+      app.render();
       try {
         await reprovisionVM(client, vm.name);
+        vm.pendingAction = undefined;
         done++;
         app.setStatusMessage(`Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ''}...`);
         app.render();
       } catch {
+        vm.pendingAction = undefined;
         failed++;
       }
     });
@@ -806,10 +820,13 @@ async function main() {
       return;
     }
     app.setStatusMessage(`Mounting ${vm.name}...`);
+    vm.pendingAction = 'mounting...';
+    app.render();
     try {
       const mountPath = await mountVM(client, vm.name, (msg) => {
         app.setStatusMessage(`${vm.name}: ${msg}`);
       });
+      vm.pendingAction = undefined;
       vm.mountPath = mountPath;
       app.setStatusMessage(`Mounted ${vm.name} at ${mountPath}`);
 
@@ -824,6 +841,7 @@ async function main() {
         });
       }
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Mount failed: ${err.message}`);
     }
     app.render();
@@ -1056,11 +1074,15 @@ async function main() {
       return;
     }
     app.setStatusMessage(`Unmounting ${vm.name}...`);
+    vm.pendingAction = 'unmounting...';
+    app.render();
     try {
       await unmountVM(vm.name);
+      vm.pendingAction = undefined;
       vm.mountPath = undefined;
       app.setStatusMessage(`Unmounted ${vm.name}`);
     } catch (err: any) {
+      vm.pendingAction = undefined;
       app.setStatusMessage(`Unmount failed: ${err.message}`);
     }
     app.render();

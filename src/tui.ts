@@ -887,7 +887,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
+          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.pendingAction ? `{yellow-fg}${vm.pendingAction}{/yellow-fg}` : vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
         });
       });
