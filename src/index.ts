@@ -157,11 +157,18 @@ async function main() {
     });
 
     session.command.on('exit', () => {
+      // Clean up the dead session so the next attach creates a fresh one
+      destroyConsole(vmName);
+      connectedVMs.delete(vmName);
+
       if (state.mode === 'console') {
-        state.mode = 'normal';
-        app.setStatusMessage(`Console session ended for ${vmName}`);
-        app.render();
-        setTimeout(() => app.resetStatus(), 3000);
+        const activeVm = state.vms[state.activeVmIndex];
+        if (activeVm && activeVm.name === vmName) {
+          state.mode = 'normal';
+          app.setStatusMessage(`Console session ended for ${vmName}`);
+          app.render();
+          setTimeout(() => app.resetStatus(), 3000);
+        }
       }
     });
   }
@@ -255,6 +262,11 @@ async function main() {
       try {
         await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
           app.setStatusMessage(`${vm.name}: ${msg}`);
+          appendOutput(vm.name, `${msg}\n`);
+          const selectedVm = state.vms[state.sidebarSelectedIndex];
+          if (selectedVm && selectedVm.name === vm.name) {
+            app.showPreview(getOutput(vm.name));
+          }
         });
         vm.provisioningStatus = 'done';
         app.setStatusMessage(`${vm.name} provisioned`);
@@ -315,7 +327,13 @@ async function main() {
       vm.provisioningStatus = 'provisioning';
       app.render();
       try {
-        await provisionVM(client, vm.name, state.settings ?? undefined, () => {});
+        await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+          appendOutput(vm.name, `${msg}\n`);
+          const selectedVm = state.vms[state.sidebarSelectedIndex];
+          if (selectedVm && selectedVm.name === vm.name) {
+            app.showPreview(getOutput(vm.name));
+          }
+        });
         vm.provisioningStatus = 'done';
         provisioned++;
         app.setStatusMessage(`Provisioned ${provisioned}/${newVMs.length}${provFailed > 0 ? ` (${provFailed} failed)` : ''}...`);
@@ -541,6 +559,11 @@ async function main() {
     try {
       await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
         app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
+        appendOutput(vm.name, `${msg}\n`);
+        const selectedVm = state.vms[state.sidebarSelectedIndex];
+        if (selectedVm && selectedVm.name === vm.name) {
+          app.showPreview(getOutput(vm.name));
+        }
       });
       vm.provisioningStatus = 'done';
       app.setStatusMessage(`${vm.displayLabel ?? vm.name} provisioned`);
@@ -779,7 +802,13 @@ async function main() {
         vm.provisioningStatus = 'provisioning';
         app.render();
         try {
-          await provisionVM(client, vm.name, state.settings ?? undefined, () => {});
+          await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+            appendOutput(vm.name, `${msg}\n`);
+            const selectedVm = state.vms[state.sidebarSelectedIndex];
+            if (selectedVm && selectedVm.name === vm.name) {
+              app.showPreview(getOutput(vm.name));
+            }
+          });
           vm.provisioningStatus = 'done';
         } catch {
           vm.provisioningStatus = 'failed';
