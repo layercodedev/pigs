@@ -1,5 +1,6 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { execFile } from 'node:child_process';
+import { homedir, platform } from 'node:os';
 import { join } from 'node:path';
 import type { SpritesClient } from '@fly/sprites';
 import type { PigsSettings } from './types.ts';
@@ -10,6 +11,32 @@ const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json');
 const CLAUDE_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
 
 import { shellExec } from './shell-exec.ts';
+
+/**
+ * Read Claude Code credentials from macOS keychain or file fallback.
+ * On macOS, Claude Code stores OAuth tokens in the keychain under "Claude Code-credentials".
+ * On Linux, it uses ~/.claude/.credentials.json.
+ */
+async function readClaudeCredentials(): Promise<string> {
+  if (platform() === 'darwin') {
+    try {
+      const result = await new Promise<string>((resolve, reject) => {
+        execFile(
+          'security',
+          ['find-generic-password', '-s', 'Claude Code-credentials', '-w'],
+          (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout.trim());
+          },
+        );
+      });
+      if (result) return result;
+    } catch {
+      // Fall through to file-based lookup
+    }
+  }
+  return readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
+}
 
 const DEFAULT_CLAUDE_MD = `# Agent Instructions
 
@@ -77,7 +104,7 @@ export async function provisionVM(
   // Step 4: Copy Claude Code auth credentials from local machine to VM
   log('Syncing Claude Code credentials...');
   try {
-    const credentialsData = await readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
+    const credentialsData = await readClaudeCredentials();
     const credB64 = Buffer.from(credentialsData).toString('base64');
     await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
     log('Claude Code credentials synced.');
@@ -117,7 +144,7 @@ export async function reprovisionVM(
   // Refresh Claude Code auth credentials
   log('Syncing Claude Code credentials...');
   try {
-    const credentialsData = await readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
+    const credentialsData = await readClaudeCredentials();
     const credB64 = Buffer.from(credentialsData).toString('base64');
     await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
     log('Claude Code credentials synced.');
