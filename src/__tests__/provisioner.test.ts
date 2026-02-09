@@ -101,7 +101,7 @@ describe('provisionVM', () => {
     jest.clearAllMocks();
   });
 
-  it('should call shellExec for provisioning script', async () => {
+  it('should call shellExec for each provisioning step', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
     mockedReadFile.mockResolvedValue(JSON.stringify({ claudeAiOauth: { accessToken: 'test' } }));
@@ -109,13 +109,16 @@ describe('provisionVM', () => {
     await provisionVM(client, 'pigs-abc123', { claudeMd: '# Test' });
 
     expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-    // Four shellExec calls: provision script, CLAUDE.md, notification hook, credentials sync
-    expect(mockSprite.execFile).toHaveBeenCalledTimes(4);
+    // Six shellExec calls: install claude, install ssh, start ssh, CLAUDE.md, notification hook, credentials sync
+    expect(mockSprite.execFile).toHaveBeenCalledTimes(6);
     // shellExec calls execFile('bash', ['-c', script])
     expect(mockSprite.execFile.mock.calls[0][0]).toBe('bash');
-    const firstScript = mockSprite.execFile.mock.calls[0][1][1] as string;
-    expect(firstScript).toContain('claude');
-    expect(firstScript).toContain('sshd');
+    const claudeInstallScript = mockSprite.execFile.mock.calls[0][1][1] as string;
+    expect(claudeInstallScript).toContain('claude');
+    const sshInstallScript = mockSprite.execFile.mock.calls[1][1][1] as string;
+    expect(sshInstallScript).toContain('openssh-server');
+    const sshStartScript = mockSprite.execFile.mock.calls[2][1][1] as string;
+    expect(sshStartScript).toContain('sshd');
   });
 
   it('should write CLAUDE.md via base64-encoded shellExec', async () => {
@@ -125,28 +128,30 @@ describe('provisionVM', () => {
 
     await provisionVM(client, 'pigs-test', { claudeMd });
 
-    // Second shellExec: write CLAUDE.md — script is in args[1][1]
-    const secondScript = mockSprite.execFile.mock.calls[1][1][1] as string;
-    expect(secondScript).toContain('base64');
-    expect(secondScript).toContain('/root/CLAUDE.md');
+    // Fourth shellExec (index 3): write CLAUDE.md — script is in args[1][1]
+    const claudeMdScript = mockSprite.execFile.mock.calls[3][1][1] as string;
+    expect(claudeMdScript).toContain('base64');
+    expect(claudeMdScript).toContain('/root/CLAUDE.md');
 
     // Verify the base64 content decodes correctly
-    const b64Match = secondScript.match(/echo '([^']+)'/);
+    const b64Match = claudeMdScript.match(/echo '([^']+)'/);
     expect(b64Match).not.toBeNull();
     const decoded = Buffer.from(b64Match![1], 'base64').toString();
     expect(decoded).toBe(claudeMd);
   });
 
-  it('should call onLog callback with progress messages', async () => {
+  it('should call onLog callback with per-step progress messages', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
 
     const logs: string[] = [];
     await provisionVM(client, 'pigs-abc', { claudeMd: '# Test' }, (msg) => logs.push(msg));
 
-    expect(logs.length).toBeGreaterThanOrEqual(2);
-    expect(logs.some((m) => m.includes('Claude Code'))).toBe(true);
-    expect(logs.some((m) => m.includes('CLAUDE.md'))).toBe(true);
+    expect(logs.length).toBeGreaterThanOrEqual(4);
+    expect(logs.some((m) => m.includes('Installing Claude Code'))).toBe(true);
+    expect(logs.some((m) => m.includes('Installing SSH server'))).toBe(true);
+    expect(logs.some((m) => m.includes('Starting SSH server'))).toBe(true);
+    expect(logs.some((m) => m.includes('Writing CLAUDE.md'))).toBe(true);
   });
 
   it('should propagate exec errors', async () => {
@@ -176,9 +181,9 @@ describe('provisionVM', () => {
     expect(mockedMkdir).toHaveBeenCalled();
     expect(mockedWriteFile).toHaveBeenCalled();
 
-    // Should still write CLAUDE.md with default content
-    const secondScript = mockSprite.execFile.mock.calls[1][1][1] as string;
-    const b64Match = secondScript.match(/echo '([^']+)'/);
+    // Should still write CLAUDE.md with default content (4th call, index 3)
+    const claudeMdScript = mockSprite.execFile.mock.calls[3][1][1] as string;
+    const b64Match = claudeMdScript.match(/echo '([^']+)'/);
     expect(b64Match).not.toBeNull();
     const decoded = Buffer.from(b64Match![1], 'base64').toString();
     expect(decoded).toContain('Agent Instructions');
@@ -198,9 +203,9 @@ describe('provisionVM', () => {
     );
     expect(settingsCalls).toHaveLength(0);
 
-    // Should write the custom CLAUDE.md content
-    const secondScript = mockSprite.execFile.mock.calls[1][1][1] as string;
-    const b64Match = secondScript.match(/echo '([^']+)'/);
+    // Should write the custom CLAUDE.md content (4th call, index 3)
+    const claudeMdScript = mockSprite.execFile.mock.calls[3][1][1] as string;
+    const b64Match = claudeMdScript.match(/echo '([^']+)'/);
     expect(b64Match).not.toBeNull();
     const decoded = Buffer.from(b64Match![1], 'base64').toString();
     expect(decoded).toBe('# Custom from app state');
