@@ -14,6 +14,79 @@ const CLAUDE_JSON_PATH = join(homedir(), '.claude.json');
 import { shellExec } from './shell-exec.ts';
 
 /**
+ * Write a file to a sprite using the Sprites filesystem API.
+ * Uses PUT /v1/sprites/{name}/fs/write with mkdir=true.
+ */
+async function spriteWriteFile(
+  client: SpritesClient,
+  spriteName: string,
+  filePath: string,
+  content: string,
+  mode?: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    path: filePath,
+    workingDir: '/',
+    mkdir: 'true',
+  });
+  if (mode) params.set('mode', mode);
+  const url = `${client.baseURL}/v1/sprites/${spriteName}/fs/write?${params}`;
+  const resp = await fetch(url, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${client.token}` },
+    body: content,
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`FS write ${filePath} failed (${resp.status}): ${body}`);
+  }
+}
+
+/**
+ * Read a file from a sprite using the Sprites filesystem API.
+ * Uses GET /v1/sprites/{name}/fs/read. Returns null if file not found.
+ */
+async function spriteReadFile(
+  client: SpritesClient,
+  spriteName: string,
+  filePath: string,
+): Promise<string | null> {
+  const params = new URLSearchParams({
+    path: filePath,
+    workingDir: '/',
+  });
+  const url = `${client.baseURL}/v1/sprites/${spriteName}/fs/read?${params}`;
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${client.token}` },
+  });
+  if (resp.status === 404) return null;
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => '');
+    throw new Error(`FS read ${filePath} failed (${resp.status}): ${body}`);
+  }
+  return resp.text();
+}
+
+/**
+ * Write a file to a sprite and verify it was written by reading it back.
+ */
+async function spriteWriteFileVerified(
+  client: SpritesClient,
+  spriteName: string,
+  filePath: string,
+  content: string,
+  log: (msg: string) => void,
+  mode?: string,
+): Promise<void> {
+  await spriteWriteFile(client, spriteName, filePath, content, mode);
+  const readBack = await spriteReadFile(client, spriteName, filePath);
+  if (readBack === null) {
+    throw new Error(`${filePath} not found after write`);
+  }
+  log(`  ✓ ${filePath} (${content.length} bytes)`);
+}
+
+/**
  * Read Claude Code credentials from macOS keychain or file fallback.
  * On macOS, Claude Code stores OAuth tokens in the keychain under "Claude Code-credentials".
  * On Linux, it uses ~/.claude/.credentials.json.
@@ -50,8 +123,8 @@ async function readLocalClaudeJson(): Promise<{ oauthAccount?: any; userID?: str
       oauthAccount: parsed.oauthAccount,
       userID: parsed.userID,
     };
-  } catch {
-    return {};
+  } catch (err: any) {
+    throw new Error(`Failed to read local ~/.claude.json: ${err?.message || err}`);
   }
 }
 
@@ -196,54 +269,18 @@ export async function provisionVM(
     throw err;
   }
 
-  // Step 4: Write CLAUDE.md from settings using base64 to avoid escaping issues
-  log('Writing CLAUDE.md...');
+  // Step 4: Write config files via Sprites FS API
+  log('Writing config files...');
   try {
-    const resolvedSettings = settings ?? await loadSettings();
-    const b64 = Buffer.from(resolvedSettings.claudeMd).toString('base64');
-    await shellExec(sprite, `echo '${b64}' | base64 -d | sudo tee /root/CLAUDE.md > /dev/null`);
+    await writeConfigFiles(client, vmName, settings, log);
   } catch (err: any) {
-    const detail = extractErrorDetail(err);
-    log(`Error writing CLAUDE.md: ${detail}`);
+    log(`Error writing config files: ${err?.message || err}`);
     throw err;
-  }
-
-  // Step 5: Install Claude Code Stop hook for finish notifications
-  log('Installing notification hook...');
-  try {
-    const hooksJson = JSON.stringify(CLAUDE_HOOKS_CONFIG);
-    const hooksB64 = Buffer.from(hooksJson).toString('base64');
-    await shellExec(sprite, `sudo mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d | sudo tee /root/.claude/settings.json > /dev/null`);
-  } catch (err: any) {
-    const detail = extractErrorDetail(err);
-    log(`Error installing notification hook: ${detail}`);
-    throw err;
-  }
-
-  // Step 6: Copy Claude Code auth credentials from local machine to VM
-  log('Syncing credentials...');
-  try {
-    const credentialsData = await readClaudeCredentials();
-    const credB64 = Buffer.from(credentialsData).toString('base64');
-    await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
-  } catch {
-    log('Warning: Could not read local Claude Code credentials (~/.claude/.credentials.json). Claude Code on this VM will need to be authenticated manually.');
-  }
-
-  // Step 7: Write ~/.claude.json with user's oauthAccount and userID
-  log('Writing Claude config...');
-  try {
-    const localData = await readLocalClaudeJson();
-    const claudeJson = buildVmClaudeJson(localData);
-    const claudeJsonB64 = Buffer.from(claudeJson).toString('base64');
-    await shellExec(sprite, `echo '${claudeJsonB64}' | base64 -d | sudo tee /root/.claude.json > /dev/null`);
-  } catch {
-    log('Warning: Could not write ~/.claude.json to VM.');
   }
 }
 
 /**
- * Re-provision a VM: reload settings and update CLAUDE.md + hooks.
+ * Re-provision a VM: reload settings and update config files.
  * Skips the expensive install step — only pushes config changes.
  */
 export async function reprovisionVM(
@@ -251,53 +288,64 @@ export async function reprovisionVM(
   vmName: string,
   onLog?: (msg: string) => void,
 ): Promise<void> {
-  const sprite = client.sprite(vmName);
   const log = onLog ?? (() => {});
 
   // Reload settings from disk to pick up any changes
   const settings = await loadSettings();
 
-  // Update CLAUDE.md
-  log('Updating CLAUDE.md...');
+  log('Writing config files...');
   try {
-    const b64 = Buffer.from(settings.claudeMd).toString('base64');
-    await shellExec(sprite, `echo '${b64}' | base64 -d | sudo tee /root/CLAUDE.md > /dev/null`);
+    await writeConfigFiles(client, vmName, settings, log);
   } catch (err: any) {
-    const detail = extractErrorDetail(err);
-    log(`Error updating CLAUDE.md: ${detail}`);
+    log(`Error writing config files: ${err?.message || err}`);
     throw err;
   }
+}
 
-  // Update hooks
-  log('Updating notification hook...');
-  try {
-    const hooksJson = JSON.stringify(CLAUDE_HOOKS_CONFIG);
-    const hooksB64 = Buffer.from(hooksJson).toString('base64');
-    await shellExec(sprite, `sudo mkdir -p /root/.claude && echo '${hooksB64}' | base64 -d | sudo tee /root/.claude/settings.json > /dev/null`);
-  } catch (err: any) {
-    const detail = extractErrorDetail(err);
-    log(`Error updating notification hook: ${detail}`);
-    throw err;
-  }
+/**
+ * Write all config files to a sprite via the FS API with read-back verification.
+ */
+async function writeConfigFiles(
+  client: SpritesClient,
+  vmName: string,
+  settings: PigsSettings | undefined,
+  log: (msg: string) => void,
+): Promise<void> {
+  const resolvedSettings = settings ?? await loadSettings();
 
-  // Refresh Claude Code auth credentials
-  log('Syncing credentials...');
+  // CLAUDE.md
+  await spriteWriteFileVerified(
+    client, vmName, '/root/CLAUDE.md',
+    resolvedSettings.claudeMd, log,
+  );
+
+  // ~/.claude/settings.json (hooks + permissions)
+  const settingsJson = JSON.stringify(CLAUDE_HOOKS_CONFIG, null, 2);
+  await spriteWriteFileVerified(
+    client, vmName, '/root/.claude/settings.json',
+    settingsJson, log,
+  );
+
+  // ~/.claude/.credentials.json
   try {
     const credentialsData = await readClaudeCredentials();
-    const credB64 = Buffer.from(credentialsData).toString('base64');
-    await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
-  } catch {
-    log('Warning: Could not sync Claude Code credentials.');
+    await spriteWriteFileVerified(
+      client, vmName, '/root/.claude/.credentials.json',
+      credentialsData, log, '0600',
+    );
+  } catch (err: any) {
+    log(`  ⚠ credentials: ${err?.message || err}`);
   }
 
-  // Update ~/.claude.json with user's oauthAccount and userID
-  log('Writing Claude config...');
+  // ~/.claude.json (oauthAccount + userID)
   try {
     const localData = await readLocalClaudeJson();
     const claudeJson = buildVmClaudeJson(localData);
-    const claudeJsonB64 = Buffer.from(claudeJson).toString('base64');
-    await shellExec(sprite, `echo '${claudeJsonB64}' | base64 -d | sudo tee /root/.claude.json > /dev/null`);
-  } catch {
-    log('Warning: Could not write ~/.claude.json to VM.');
+    await spriteWriteFileVerified(
+      client, vmName, '/root/.claude.json',
+      claudeJson, log,
+    );
+  } catch (err: any) {
+    log(`  ⚠ .claude.json: ${err?.message || err}`);
   }
 }

@@ -22,6 +22,10 @@ const mockedReadFile = readFile as Mock<typeof readFile>;
 const mockedMkdir = mkdir as Mock<typeof mkdir>;
 const mockedWriteFile = writeFile as Mock<typeof writeFile>;
 
+// Mock global fetch for Sprites FS API calls
+const originalFetch = globalThis.fetch;
+let mockFetch: Mock<typeof fetch>;
+
 function createMockSprite() {
   const mock = {
     exec: jest.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
@@ -34,6 +38,8 @@ function createMockClient(mockSprite?: ReturnType<typeof createMockSprite>) {
   const sprite = mockSprite ?? createMockSprite();
   return {
     sprite: jest.fn().mockReturnValue(sprite),
+    baseURL: 'https://api.sprites.dev',
+    token: 'test-token',
     _mockSprite: sprite,
   } as any;
 }
@@ -99,9 +105,18 @@ describe('loadSettings', () => {
 describe('provisionVM', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Mock fetch: FS write returns 200, FS read returns 200 with content
+    mockFetch = jest.fn().mockImplementation((url: string, opts?: any) => {
+      return Promise.resolve(new Response('ok', { status: 200 }));
+    });
+    globalThis.fetch = mockFetch as any;
   });
 
-  it('should call shellExec for each provisioning step', async () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('should call shellExec for install steps and fetch for file writes', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
     mockedReadFile.mockResolvedValue(JSON.stringify({ claudeAiOauth: { accessToken: 'test' } }));
@@ -109,35 +124,31 @@ describe('provisionVM', () => {
     await provisionVM(client, 'pigs-abc123', { claudeMd: '# Test' });
 
     expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-    // Six shellExec calls: install claude, install ssh, start ssh, CLAUDE.md, notification hook, credentials sync
-    expect(mockSprite.execFile).toHaveBeenCalledTimes(6);
-    // shellExec calls execFile('bash', ['-c', script])
-    expect(mockSprite.execFile.mock.calls[0][0]).toBe('bash');
-    const claudeInstallScript = mockSprite.execFile.mock.calls[0][1][1] as string;
-    expect(claudeInstallScript).toContain('claude');
-    const sshInstallScript = mockSprite.execFile.mock.calls[1][1][1] as string;
-    expect(sshInstallScript).toContain('openssh-server');
-    const sshStartScript = mockSprite.execFile.mock.calls[2][1][1] as string;
-    expect(sshStartScript).toContain('sshd');
+    // Three shellExec calls: install claude, install ssh, start ssh
+    expect(mockSprite.execFile).toHaveBeenCalledTimes(3);
+    expect(mockSprite.execFile.mock.calls[0][1][1]).toContain('claude');
+    expect(mockSprite.execFile.mock.calls[1][1][1]).toContain('openssh-server');
+    expect(mockSprite.execFile.mock.calls[2][1][1]).toContain('sshd');
+    // File writes go through fetch (FS API)
+    expect(mockFetch).toHaveBeenCalled();
   });
 
-  it('should write CLAUDE.md via base64-encoded shellExec', async () => {
+  it('should write files via Sprites FS API', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
     const claudeMd = '# My Instructions\nDo stuff.';
 
     await provisionVM(client, 'pigs-test', { claudeMd });
 
-    // Fourth shellExec (index 3): write CLAUDE.md — script is in args[1][1]
-    const claudeMdScript = mockSprite.execFile.mock.calls[3][1][1] as string;
-    expect(claudeMdScript).toContain('base64');
-    expect(claudeMdScript).toContain('/root/CLAUDE.md');
-
-    // Verify the base64 content decodes correctly
-    const b64Match = claudeMdScript.match(/echo '([^']+)'/);
-    expect(b64Match).not.toBeNull();
-    const decoded = Buffer.from(b64Match![1], 'base64').toString();
-    expect(decoded).toBe(claudeMd);
+    // Check that FS write was called for CLAUDE.md
+    const writeCalls = mockFetch.mock.calls.filter(
+      (call: any) => call[1]?.method === 'PUT',
+    );
+    const claudeMdWrite = writeCalls.find((call: any) =>
+      String(call[0]).includes('CLAUDE.md'),
+    );
+    expect(claudeMdWrite).toBeDefined();
+    expect(claudeMdWrite![1].body).toBe(claudeMd);
   });
 
   it('should call onLog callback with per-step progress messages', async () => {
@@ -151,7 +162,7 @@ describe('provisionVM', () => {
     expect(logs.some((m) => m.includes('Installing Claude Code'))).toBe(true);
     expect(logs.some((m) => m.includes('Installing SSH server'))).toBe(true);
     expect(logs.some((m) => m.includes('Starting SSH server'))).toBe(true);
-    expect(logs.some((m) => m.includes('Writing CLAUDE.md'))).toBe(true);
+    expect(logs.some((m) => m.includes('Writing config files'))).toBe(true);
   });
 
   it('should propagate exec errors', async () => {
@@ -181,12 +192,15 @@ describe('provisionVM', () => {
     expect(mockedMkdir).toHaveBeenCalled();
     expect(mockedWriteFile).toHaveBeenCalled();
 
-    // Should still write CLAUDE.md with default content (4th call, index 3)
-    const claudeMdScript = mockSprite.execFile.mock.calls[3][1][1] as string;
-    const b64Match = claudeMdScript.match(/echo '([^']+)'/);
-    expect(b64Match).not.toBeNull();
-    const decoded = Buffer.from(b64Match![1], 'base64').toString();
-    expect(decoded).toContain('Agent Instructions');
+    // Verify CLAUDE.md was written via FS API with default content
+    const writeCalls = mockFetch.mock.calls.filter(
+      (call: any) => call[1]?.method === 'PUT',
+    );
+    const claudeMdWrite = writeCalls.find((call: any) =>
+      String(call[0]).includes('CLAUDE.md'),
+    );
+    expect(claudeMdWrite).toBeDefined();
+    expect(claudeMdWrite![1].body).toContain('Agent Instructions');
   });
 
   it('should use provided settings instead of loading from disk', async () => {
@@ -196,37 +210,76 @@ describe('provisionVM', () => {
 
     await provisionVM(client, 'pigs-custom', customSettings);
 
-    // readFile should only be called for credentials sync, not for settings
+    // readFile should only be called for credentials/claude.json sync, not for settings
     const settingsPath = join(homedir(), '.pigs', 'settings.json');
     const settingsCalls = mockedReadFile.mock.calls.filter(
       (call) => call[0] === settingsPath,
     );
     expect(settingsCalls).toHaveLength(0);
 
-    // Should write the custom CLAUDE.md content (4th call, index 3)
-    const claudeMdScript = mockSprite.execFile.mock.calls[3][1][1] as string;
-    const b64Match = claudeMdScript.match(/echo '([^']+)'/);
-    expect(b64Match).not.toBeNull();
-    const decoded = Buffer.from(b64Match![1], 'base64').toString();
-    expect(decoded).toBe('# Custom from app state');
+    // Verify CLAUDE.md was written via FS API with custom content
+    const writeCalls = mockFetch.mock.calls.filter(
+      (call: any) => call[1]?.method === 'PUT',
+    );
+    const claudeMdWrite = writeCalls.find((call: any) =>
+      String(call[0]).includes('CLAUDE.md'),
+    );
+    expect(claudeMdWrite).toBeDefined();
+    expect(claudeMdWrite![1].body).toBe('# Custom from app state');
+  });
+
+  it('should verify files exist after writing by reading them back', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+
+    await provisionVM(client, 'pigs-verify', { claudeMd: '# Test' });
+
+    // For each file written (PUT), there should be a read-back (GET)
+    const putCalls = mockFetch.mock.calls.filter(
+      (call: any) => call[1]?.method === 'PUT',
+    );
+    const getCalls = mockFetch.mock.calls.filter(
+      (call: any) => !call[1]?.method || call[1]?.method === 'GET',
+    );
+    expect(getCalls.length).toBeGreaterThanOrEqual(putCalls.length);
+  });
+
+  it('should log file paths with checkmarks on success', async () => {
+    const mockSprite = createMockSprite();
+    const client = createMockClient(mockSprite);
+
+    const logs: string[] = [];
+    await provisionVM(client, 'pigs-log', { claudeMd: '# Test' }, (msg) => logs.push(msg));
+
+    expect(logs.some((m) => m.includes('/root/CLAUDE.md'))).toBe(true);
+    expect(logs.some((m) => m.includes('/root/.claude/settings.json'))).toBe(true);
   });
 });
 
 describe('reprovisionVM', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFetch = jest.fn().mockImplementation((url: string, opts?: any) => {
+      return Promise.resolve(new Response('ok', { status: 200 }));
+    });
+    globalThis.fetch = mockFetch as any;
   });
 
-  it('should only run two exec calls (CLAUDE.md + hooks, no install)', async () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('should only use FS API for file writes (no shellExec install calls)', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
     mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Updated' }));
 
     await reprovisionVM(client, 'pigs-reprov');
 
-    expect(client.sprite).toHaveBeenCalledWith('pigs-reprov');
-    // Three shellExec calls: CLAUDE.md, hooks, and credentials sync (no install step)
-    expect(mockSprite.execFile).toHaveBeenCalledTimes(3);
+    expect(client.sprite).not.toHaveBeenCalled(); // no shellExec needed
+    // No execFile calls — all file writes go through fetch
+    expect(mockSprite.execFile).toHaveBeenCalledTimes(0);
+    expect(mockFetch).toHaveBeenCalled();
   });
 
   it('should reload settings from disk', async () => {
@@ -239,23 +292,33 @@ describe('reprovisionVM', () => {
     expect(mockedReadFile).toHaveBeenCalled();
 
     // Verify CLAUDE.md content matches reloaded settings
-    const firstScript = mockSprite.execFile.mock.calls[0][1][1] as string;
-    const b64Match = firstScript.match(/echo '([^']+)'/);
-    expect(b64Match).not.toBeNull();
-    const decoded = Buffer.from(b64Match![1], 'base64').toString();
-    expect(decoded).toBe('# Fresh from disk');
+    const writeCalls = mockFetch.mock.calls.filter(
+      (call: any) => call[1]?.method === 'PUT',
+    );
+    const claudeMdWrite = writeCalls.find((call: any) =>
+      String(call[0]).includes('CLAUDE.md'),
+    );
+    expect(claudeMdWrite).toBeDefined();
+    expect(claudeMdWrite![1].body).toBe('# Fresh from disk');
   });
 
-  it('should write updated hooks config', async () => {
+  it('should write settings.json with hooks and permissions config', async () => {
     const mockSprite = createMockSprite();
     const client = createMockClient(mockSprite);
     mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
 
     await reprovisionVM(client, 'pigs-reprov');
 
-    const secondScript = mockSprite.execFile.mock.calls[1][1][1] as string;
-    expect(secondScript).toContain('base64');
-    expect(secondScript).toContain('.claude/settings.json');
+    const writeCalls = mockFetch.mock.calls.filter(
+      (call: any) => call[1]?.method === 'PUT',
+    );
+    const settingsWrite = writeCalls.find((call: any) =>
+      String(call[0]).includes('settings.json'),
+    );
+    expect(settingsWrite).toBeDefined();
+    const written = JSON.parse(settingsWrite![1].body);
+    expect(written.permissions).toEqual({ defaultMode: 'bypassPermissions' });
+    expect(written.hooks).toBeDefined();
   });
 
   it('should call onLog callback with progress messages', async () => {
@@ -267,17 +330,15 @@ describe('reprovisionVM', () => {
     await reprovisionVM(client, 'pigs-reprov', (msg) => logs.push(msg));
 
     expect(logs.length).toBeGreaterThanOrEqual(2);
-    expect(logs.some((m) => m.includes('CLAUDE.md'))).toBe(true);
-    expect(logs.some((m) => m.includes('hook'))).toBe(true);
+    expect(logs.some((m) => m.includes('Writing config files'))).toBe(true);
   });
 
-  it('should propagate exec errors', async () => {
-    const mockSprite = createMockSprite();
-    mockSprite.execFile.mockRejectedValueOnce(new Error('exec failed'));
-    const client = createMockClient(mockSprite);
+  it('should propagate FS API errors', async () => {
+    const client = createMockClient();
     mockedReadFile.mockResolvedValue(JSON.stringify({ claudeMd: '# Test' }));
+    mockFetch.mockResolvedValueOnce(new Response('server error', { status: 500 }) as any);
 
-    await expect(reprovisionVM(client, 'pigs-fail')).rejects.toThrow('exec failed');
+    await expect(reprovisionVM(client, 'pigs-fail')).rejects.toThrow();
   });
 
   it('should work without onLog callback', async () => {
