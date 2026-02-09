@@ -16,6 +16,9 @@ export const STOP_HOOK_COMMAND = `touch ${SIGNAL_FILE}`;
  * ~/.claude/settings.json to fire a Stop hook when Claude finishes.
  */
 export const CLAUDE_HOOKS_CONFIG = {
+  permissions: {
+    defaultMode: 'bypassPermissions',
+  },
   hooks: {
     Stop: [
       {

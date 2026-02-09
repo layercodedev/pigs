@@ -9,6 +9,7 @@ import { CLAUDE_HOOKS_CONFIG } from './notification-monitor.ts';
 const SETTINGS_DIR = join(homedir(), '.pigs');
 const SETTINGS_PATH = join(SETTINGS_DIR, 'settings.json');
 const CLAUDE_CREDENTIALS_PATH = join(homedir(), '.claude', '.credentials.json');
+const CLAUDE_JSON_PATH = join(homedir(), '.claude.json');
 
 import { shellExec } from './shell-exec.ts';
 
@@ -36,6 +37,89 @@ async function readClaudeCredentials(): Promise<string> {
     }
   }
   return readFile(CLAUDE_CREDENTIALS_PATH, 'utf-8');
+}
+
+/**
+ * Read oauthAccount and userID from the local ~/.claude.json.
+ */
+async function readLocalClaudeJson(): Promise<{ oauthAccount?: any; userID?: string }> {
+  try {
+    const data = await readFile(CLAUDE_JSON_PATH, 'utf-8');
+    const parsed = JSON.parse(data);
+    return {
+      oauthAccount: parsed.oauthAccount,
+      userID: parsed.userID,
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Build the ~/.claude.json content for a VM, injecting the user's
+ * oauthAccount and userID from their local machine.
+ */
+function buildVmClaudeJson(localData: { oauthAccount?: any; userID?: string }): string {
+  const config: Record<string, any> = {
+    numStartups: 1,
+    cachedGrowthBookFeatures: {
+      tengu_1p_event_batch_config: {
+        scheduledDelayMillis: 5000,
+        maxExportBatchSize: 200,
+        maxQueueSize: 8192,
+      },
+      tengu_mcp_tool_search: true,
+      tengu_scratch: false,
+      tengu_brass_pebble: false,
+      tengu_disable_bypass_permissions_mode: false,
+      tengu_event_sampling_config: {},
+      tengu_tool_pear: false,
+      tengu_scarf_coffee: false,
+      tengu_log_segment_events: false,
+      tengu_log_datadog_events: true,
+      tengu_keybinding_customization_release: false,
+      tengu_thinkback: false,
+      tengu_pid_based_version_locking: true,
+      tengu_c4w_usage_limit_notifications_enabled: true,
+      tengu_marble_kite: false,
+      tengu_kv7_prompt_sort: false,
+      'tengu-top-of-feed-tip': { tip: '', color: '' },
+      tengu_react_vulnerability_warning: false,
+      tengu_code_diff_cli: true,
+      tengu_pr_status_cli: false,
+      tengu_post_compact_survey: false,
+      tengu_claudeai_mcp_connectors: true,
+    },
+    userID: localData.userID || '',
+    firstStartTime: new Date().toISOString(),
+    sonnet45MigrationComplete: true,
+    opus45MigrationComplete: true,
+    opusProMigrationComplete: true,
+    thinkingMigrationComplete: true,
+    cachedChromeExtensionInstalled: false,
+    oauthAccount: localData.oauthAccount || {},
+    hasCompletedOnboarding: true,
+    lastOnboardingVersion: '2.1.20',
+    bypassPermissionsModeAccepted: true,
+    lastReleaseNotesSeen: '2.1.20',
+    projects: {
+      '/home/sprite': {
+        allowedTools: [],
+        mcpContextUris: [],
+        mcpServers: {},
+        enabledMcpjsonServers: [],
+        disabledMcpjsonServers: [],
+        hasTrustDialogAccepted: false,
+        projectOnboardingSeenCount: 1,
+        hasClaudeMdExternalIncludesApproved: false,
+        hasClaudeMdExternalIncludesWarningShown: false,
+        exampleFiles: [],
+      },
+    },
+    officialMarketplaceAutoInstallAttempted: true,
+    officialMarketplaceAutoInstalled: true,
+  };
+  return JSON.stringify(config, null, 2);
 }
 
 const DEFAULT_CLAUDE_MD = `# Agent Instructions
@@ -145,6 +229,17 @@ export async function provisionVM(
   } catch {
     log('Warning: Could not read local Claude Code credentials (~/.claude/.credentials.json). Claude Code on this VM will need to be authenticated manually.');
   }
+
+  // Step 7: Write ~/.claude.json with user's oauthAccount and userID
+  log('Writing Claude config...');
+  try {
+    const localData = await readLocalClaudeJson();
+    const claudeJson = buildVmClaudeJson(localData);
+    const claudeJsonB64 = Buffer.from(claudeJson).toString('base64');
+    await shellExec(sprite, `echo '${claudeJsonB64}' | base64 -d | sudo tee /root/.claude.json > /dev/null`);
+  } catch {
+    log('Warning: Could not write ~/.claude.json to VM.');
+  }
 }
 
 /**
@@ -193,5 +288,16 @@ export async function reprovisionVM(
     await shellExec(sprite, `echo '${credB64}' | base64 -d | sudo tee /root/.claude/.credentials.json > /dev/null && sudo chmod 600 /root/.claude/.credentials.json`);
   } catch {
     log('Warning: Could not sync Claude Code credentials.');
+  }
+
+  // Update ~/.claude.json with user's oauthAccount and userID
+  log('Writing Claude config...');
+  try {
+    const localData = await readLocalClaudeJson();
+    const claudeJson = buildVmClaudeJson(localData);
+    const claudeJsonB64 = Buffer.from(claudeJson).toString('base64');
+    await shellExec(sprite, `echo '${claudeJsonB64}' | base64 -d | sudo tee /root/.claude.json > /dev/null`);
+  } catch {
+    log('Warning: Could not write ~/.claude.json to VM.');
   }
 }
