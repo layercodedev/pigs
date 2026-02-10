@@ -30,7 +30,6 @@ import {
   focusRightPane,
   rightPaneExists,
   zoomPane,
-  focusLeftPane,
 } from './tmux.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
@@ -86,10 +85,9 @@ async function main() {
   app.render();
   app.resetStatus();
 
-  // Create the right pane and set sidebar width
+  // Create the right pane (with -d so focus stays on blessed) and set sidebar width
   createRightPane();
   setLeftPaneWidth(34);
-  focusLeftPane();
 
   /**
    * Process prompt queues: when a VM finishes a task and has queued prompts,

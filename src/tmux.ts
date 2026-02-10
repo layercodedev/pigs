@@ -215,7 +215,7 @@ export function createRightPane(
   sessionName: string = SESSION_NAME,
 ): void {
   const cmdPart = command ? ` ${shellEscape(command)}` : '';
-  execSync(`tmux split-window -h -t ${sessionName}:0${cmdPart}`, { stdio: 'pipe' });
+  execSync(`tmux split-window -d -h -t ${sessionName}:0${cmdPart}`, { stdio: 'pipe' });
 }
 
 /**
