@@ -23,6 +23,7 @@ import {
   attachSession,
   createWindow,
   killWindow,
+  killSession,
   getSessionName,
   createRightPane,
   setLeftPaneWidth,
@@ -1076,12 +1077,13 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Quit handler - detach all sessions gracefully
+  // Quit handler - detach all sessions and kill tmux session
   app.onKey('quit', async () => {
     stopMonitor();
     clearAllQueues();
     detachAll();
     await unmountAll();
+    killSession();
   });
 
   // Handle OS signals for graceful shutdown
@@ -1090,6 +1092,7 @@ async function main() {
     clearAllQueues();
     detachAll();
     await unmountAll();
+    killSession();
     process.exit(0);
   };
   process.on('SIGTERM', signalHandler);
