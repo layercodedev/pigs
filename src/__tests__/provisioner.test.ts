@@ -81,7 +81,6 @@ describe('provisionBranch', () => {
     expect(settingsCall).toBeDefined();
     expect(settingsCall![0]).toBe(join(worktreePath, '.claude', 'settings.json'));
     const written = JSON.parse(settingsCall![1] as string);
-    expect(written.permissions.defaultMode).toBe('bypassPermissions');
     expect(written.hooks).toBeDefined();
     expect(written.hooks.Stop).toBeDefined();
   });
@@ -92,6 +91,7 @@ describe('provisionBranch', () => {
       permissions: {
         allow: ['Bash(git:*)'],
         deny: ['Read(**/.env)'],
+        defaultMode: 'bypassPermissions',
         hooks: {
           PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'prettier' }] }],
         },
@@ -111,7 +111,7 @@ describe('provisionBranch', () => {
     expect(written.permissions.allow).toEqual(['Bash(git:*)']);
     expect(written.permissions.deny).toEqual(['Read(**/.env)']);
     expect(written.enableAllProjectMcpServers).toBe(true);
-    // Should add bypassPermissions
+    // Should preserve existing permissions
     expect(written.permissions.defaultMode).toBe('bypassPermissions');
     // Should have Stop hook
     expect(written.hooks.Stop).toBeDefined();
@@ -205,8 +205,8 @@ describe('reprovisionBranch', () => {
     );
     expect(settingsCall).toBeDefined();
     const written = JSON.parse(settingsCall![1] as string);
-    expect(written.permissions.defaultMode).toBe('bypassPermissions');
     expect(written.hooks).toBeDefined();
+    expect(written.hooks.Stop).toBeDefined();
   });
 
   it('should call onLog callback with progress messages', async () => {

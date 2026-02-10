@@ -738,7 +738,34 @@ export function createApp() {
     }
   }
 
-  screen.on('keypress', (ch: string | undefined) => {
+  screen.on('keypress', (ch: string | undefined, key: any) => {
+    // Ctrl-K to toggle command menu (more reliable than screen.key for control sequences)
+    if (key && key.ctrl && key.name === 'k') {
+      if (state.mode === 'command-menu') {
+        hideCommandMenu();
+      } else if (state.mode === 'normal') {
+        showCommandMenu();
+      }
+      return;
+    }
+    // Direct 'G' shortcut for grid toggle from normal/grid mode
+    if (ch === 'G' && state.mode === 'normal') {
+      const gridIdx = commandMenuItems.findIndex(item => item.handler === 'grid');
+      if (gridIdx >= 0) {
+        commandMenuIndex = gridIdx;
+        executeCommandMenuItem();
+      }
+      return;
+    }
+    if (ch === 'G' && state.mode === 'grid') {
+      handlers['grid-close']?.();
+      state.mode = 'normal';
+      statusBar.setContent(normalStatusText);
+      screen.render();
+      return;
+    }
+
+    // Letter shortcut activation in command menu
     if (state.mode !== 'command-menu' || !ch) return;
     const idx = commandMenuItems.findIndex(item => item.key === ch);
     if (idx >= 0) {
@@ -1080,9 +1107,11 @@ export function createApp() {
   }
 
   function renderSidebar() {
-    sidebar.children.forEach((child) => {
-      if (child !== sidebar) child.detach();
-    });
+    // Remove all children using a while loop to avoid skipping elements
+    // when detach() mutates the children array during iteration
+    while (sidebar.children.length) {
+      sidebar.children[0].detach();
+    }
 
     // Update sidebar label with branch status summary
     const summary = buildVmSummary(state.vms);
@@ -1319,16 +1348,6 @@ export function createApp() {
     }
     // Ctrl-C always quits
     gracefulQuit();
-  });
-
-  // Ctrl-K: open command menu (also triggered by tmux bind -n from agent pane)
-  screen.key(['C-k'], () => {
-    if (state.mode === 'command-menu') {
-      hideCommandMenu();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    showCommandMenu();
   });
 
   screen.key(['j', 'down'], () => {

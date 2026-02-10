@@ -1,17 +1,54 @@
 #!/usr/bin/env bun
 
-import { createApp } from './tui.ts';
-import { listBranches, createBranch, deleteBranch, generateBranchName, getRepoRoot, getRepoName, copyConfigFiles } from './worktree-client.ts';
-import { findOpenPort } from './port-finder.ts';
-import { loadSettings, provisionBranch, reprovisionBranch } from './provisioner.ts';
-import { startMonitor, stopMonitor, clearAttention, registerBranch } from './notification-monitor.ts';
-import { loadHistory, addToHistory } from './prompt-history.ts';
-import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
-import { exportLog } from './log-export.ts';
-import { enqueue, dequeue, queueSize, clearQueue, clearAllQueues, removeFromQueue } from './prompt-queue.ts';
-import { fetchPRChain, getCurrentBranch, getDefaultBranch, buildPRTree, renderPRTree, clearPRCache, findStalePRs } from './pr-chain.ts';
-import { fetchMyIssues, renderLinearIssues, clearLinearCache, startIssue } from './linear-client.ts';
-import type { LinearIssue } from './linear-client.ts';
+import { createApp } from "./tui.ts";
+import {
+  listBranches,
+  createBranch,
+  deleteBranch,
+  generateBranchName,
+  getRepoRoot,
+  getRepoName,
+  copyConfigFiles,
+} from "./worktree-client.ts";
+import { findOpenPort } from "./port-finder.ts";
+import {
+  loadSettings,
+  provisionBranch,
+  reprovisionBranch,
+} from "./provisioner.ts";
+import {
+  startMonitor,
+  stopMonitor,
+  clearAttention,
+  registerBranch,
+} from "./notification-monitor.ts";
+import { loadHistory, addToHistory } from "./prompt-history.ts";
+import { appendOutput, getOutput, clearOutput } from "./output-buffer.ts";
+import { exportLog } from "./log-export.ts";
+import {
+  enqueue,
+  dequeue,
+  queueSize,
+  clearQueue,
+  clearAllQueues,
+  removeFromQueue,
+} from "./prompt-queue.ts";
+import {
+  fetchPRChain,
+  getCurrentBranch,
+  getDefaultBranch,
+  buildPRTree,
+  renderPRTree,
+  clearPRCache,
+  findStalePRs,
+} from "./pr-chain.ts";
+import {
+  fetchMyIssues,
+  renderLinearIssues,
+  clearLinearCache,
+  startIssue,
+} from "./linear-client.ts";
+import type { LinearIssue } from "./linear-client.ts";
 import {
   insideTmux,
   sessionExists,
@@ -26,20 +63,33 @@ import {
   respawnRightPane,
   focusRightPane,
   rightPaneExists,
+  killRightPane,
   zoomPane,
   createGridWindow,
   killGridWindow,
   switchToControlPane,
-} from './tmux.ts';
+  listWindows,
+  configureStatusBar,
+  windowExists,
+  joinWindowToRightPane,
+  breakRightPaneToWindow,
+} from "./tmux.ts";
+
+// Command used to invoke Claude. Change this to switch between local and sandboxed execution.
+const CLAUDE_CMD = "claude --dangerously-skip-permissions";
+// const CLAUDE_CMD = 'docker sandbox run claude';
 
 async function main() {
   // Ensure we're inside a tmux session.
   if (!insideTmux()) {
     const name = getSessionName();
-    if (!sessionExists(name)) {
-      const cmd = process.argv.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
-      createSession(name, cmd);
+    if (sessionExists(name)) {
+      killSession(name);
     }
+    const cmd = process.argv
+      .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
+      .join(" ");
+    createSession(name, cmd);
     attachSession(name);
     process.exit(0);
   }
@@ -49,7 +99,7 @@ async function main() {
   try {
     repoRoot = getRepoRoot();
   } catch {
-    console.error('Error: pigs must be run inside a git repository');
+    console.error("Error: pigs must be run inside a git repository");
     process.exit(1);
   }
 
@@ -68,7 +118,7 @@ async function main() {
   await loadHistory();
 
   // Load existing worktree branches
-  app.setStatusMessage('Loading branches...');
+  app.setStatusMessage("Loading branches...");
   try {
     state.vms = listBranches(repoRoot);
     if (state.vms.length > 0) {
@@ -82,9 +132,19 @@ async function main() {
   app.render();
   app.resetStatus();
 
-  // Create the right pane and set sidebar width
-  createRightPane();
-  setLeftPaneWidth(34);
+  // Configure tmux status bar with navigation hints
+  configureStatusBar();
+
+  // Ensure we're on the control window and clean up stale windows
+  switchToControlPane();
+  for (const win of listWindows()) {
+    if (win !== "0" && win !== "bun" && win !== "pigs-grid") {
+      killWindow(win);
+    }
+  }
+  killGridWindow();
+
+  // Start with sidebar fullscreen — right pane created on first activate
 
   /**
    * Process prompt queues: when a branch finishes a task and has queued prompts,
@@ -99,7 +159,7 @@ async function main() {
         clearAttention(vm);
         vm.taskStartedAt = Date.now();
         const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
-        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
 
         if (vm.name === state.rightPaneVmName) {
           ensureRightPane();
@@ -108,7 +168,9 @@ async function main() {
           killWindow(vm.name);
           createWindow(vm.name, command);
         }
-        app.setStatusMessage(`Auto-sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
+        app.setStatusMessage(
+          `Auto-sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`,
+        );
         app.render();
         setTimeout(() => app.resetStatus(), 3000);
       }
@@ -125,13 +187,13 @@ async function main() {
   startMonitor(state.vms, onBranchDone);
 
   // Selection changed handler
-  app.onKey('selection-changed', () => {});
+  app.onKey("selection-changed", () => {});
 
   // Toggle sidebar handler (Tab key)
-  app.onKey('toggle-sidebar', () => {
+  app.onKey("toggle-sidebar", () => {
     ensureRightPane();
     try {
-      zoomPane('0.1');
+      zoomPane("0.1");
       state.sidebarHidden = true;
       focusRightPane();
     } catch {}
@@ -145,65 +207,130 @@ async function main() {
   }
 
   function openVmInRightPane(vmName: string, command: string) {
-    ensureRightPane();
-    respawnRightPane(command);
-    state.rightPaneVmName = vmName;
-    focusRightPane();
+    try {
+      // If the branch is already in the right pane, just focus it
+      if (state.rightPaneVmName === vmName && rightPaneExists()) {
+        focusRightPane();
+        return;
+      }
+
+      // Save current right pane back as its own window if it belongs to a different branch
+      if (rightPaneExists() && state.rightPaneVmName && state.rightPaneVmName !== vmName) {
+        try {
+          breakRightPaneToWindow(state.rightPaneVmName);
+        } catch {
+          // Right pane may have exited, just kill it
+          try { killRightPane(); } catch {}
+        }
+      }
+
+      // If the branch already has a tmux window, move it into the right pane
+      if (windowExists(vmName)) {
+        if (rightPaneExists()) {
+          try { killRightPane(); } catch {}
+        }
+        try {
+          joinWindowToRightPane(vmName);
+          setLeftPaneWidth(34);
+        } catch {
+          // join-pane can fail if the window's process exited; fall back to create
+          killWindow(vmName);
+          createRightPane(command);
+          setLeftPaneWidth(34);
+        }
+      } else if (rightPaneExists()) {
+        try {
+          respawnRightPane(command);
+        } catch {
+          try { killRightPane(); } catch {}
+          createRightPane(command);
+          setLeftPaneWidth(34);
+        }
+      } else {
+        createRightPane(command);
+        setLeftPaneWidth(34);
+      }
+      state.rightPaneVmName = vmName;
+      // Verify right pane exists before trying to focus it
+      if (rightPaneExists()) {
+        focusRightPane();
+      }
+    } catch (err: any) {
+      app.setStatusMessage(`Error opening pane: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
   }
 
   // Activate branch handler - open shell in worktree in right pane
-  app.onKey('activate', async () => {
+  app.onKey("activate", async () => {
     const vm = state.vms[state.activeVmIndex];
     if (!vm) return;
 
     clearAttention(vm);
     app.render();
 
-    openVmInRightPane(vm.name, `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && bash`);
+    openVmInRightPane(
+      vm.name,
+      `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && exec ${process.env.SHELL || "bash"}`,
+    );
   });
 
   // Create branch handler
-  app.onKey('create', async () => {
-    state.mode = 'creating';
-    app.startSpinner('Creating branch...');
+  app.onKey("create", async () => {
+    state.mode = "creating";
+    app.startSpinner("Creating branch...");
     try {
       const branchName = generateBranchName();
-      const vm = createBranch(repoRoot, branchName, state.settings ?? undefined);
+      const vm = createBranch(
+        repoRoot,
+        branchName,
+        state.settings ?? undefined,
+      );
       state.vms.push(vm);
       state.sidebarSelectedIndex = state.vms.length - 1;
       state.activeVmIndex = state.vms.length - 1;
-      state.mode = 'normal';
+      state.mode = "normal";
 
       // Provision (write hooks config)
-      vm.provisioningStatus = 'provisioning';
+      vm.provisioningStatus = "provisioning";
       app.updateSpinner(`${vm.name}: Provisioning...`);
       app.render();
       try {
-        await provisionBranch(vm.worktreePath, state.settings ?? undefined, (msg) => {
-          app.updateSpinner(`${vm.name}: ${msg}`);
-          appendOutput(vm.name, `${msg}\n`);
-        });
-        vm.provisioningStatus = 'done';
+        await provisionBranch(
+          vm.worktreePath,
+          state.settings ?? undefined,
+          (msg) => {
+            app.updateSpinner(`${vm.name}: ${msg}`);
+            appendOutput(vm.name, `${msg}\n`);
+          },
+        );
+        vm.provisioningStatus = "done";
         registerBranch(vm, onBranchDone);
         app.stopSpinner();
         app.setStatusMessage(`✓ ${vm.name} created`);
+
+        // Auto-start claude in the new branch
+        openVmInRightPane(
+          vm.name,
+          `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD}`,
+        );
       } catch (err: any) {
-        vm.provisioningStatus = 'failed';
+        vm.provisioningStatus = "failed";
         app.stopSpinner();
         app.setStatusMessage(`Provisioning failed: ${err.message}`);
       }
     } catch (err: any) {
       app.stopSpinner();
       app.setStatusMessage(`Error creating branch: ${err.message}`);
-      state.mode = 'normal';
+      state.mode = "normal";
     }
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Bulk create branches handler
-  app.onKey('bulk-create', async (count: number) => {
-    state.mode = 'creating';
+  app.onKey("bulk-create", async (count: number) => {
+    state.mode = "creating";
     app.startSpinner(`Creating ${count} branches...`);
 
     let created = 0;
@@ -212,20 +339,24 @@ async function main() {
     for (let i = 0; i < count; i++) {
       try {
         const branchName = generateBranchName();
-        const vm = createBranch(repoRoot, branchName, state.settings ?? undefined);
+        const vm = createBranch(
+          repoRoot,
+          branchName,
+          state.settings ?? undefined,
+        );
         state.vms.push(vm);
         created++;
         app.updateSpinner(`Created ${created}/${count} branches...`);
         app.render();
 
         // Provision
-        vm.provisioningStatus = 'provisioning';
+        vm.provisioningStatus = "provisioning";
         try {
           await provisionBranch(vm.worktreePath, state.settings ?? undefined);
-          vm.provisioningStatus = 'done';
+          vm.provisioningStatus = "done";
           registerBranch(vm, onBranchDone);
         } catch {
-          vm.provisioningStatus = 'failed';
+          vm.provisioningStatus = "failed";
         }
       } catch {
         failed++;
@@ -236,9 +367,9 @@ async function main() {
       state.sidebarSelectedIndex = state.vms.length - 1;
       state.activeVmIndex = state.vms.length - 1;
     }
-    state.mode = 'normal';
+    state.mode = "normal";
 
-    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    const failMsg = failed > 0 ? ` (${failed} failed)` : "";
     app.stopSpinner();
     app.setStatusMessage(`✓ ${created} branches created${failMsg}`);
     app.render();
@@ -246,11 +377,11 @@ async function main() {
   });
 
   // Delete branch handler
-  app.onKey('delete', async () => {
+  app.onKey("delete", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     app.setStatusMessage(`Deleting branch: ${vm.name}...`);
-    vm.pendingAction = 'deleting...';
+    vm.pendingAction = "deleting...";
     vm.lastError = undefined;
     app.render();
     try {
@@ -259,7 +390,10 @@ async function main() {
       clearQueue(vm.name);
       if (state.rightPaneVmName === vm.name) {
         state.rightPaneVmName = null;
-        try { ensureRightPane(); respawnRightPane('bash'); } catch {}
+        try {
+          ensureRightPane();
+          respawnRightPane("bash");
+        } catch {}
       }
       deleteBranch(repoRoot, vm.name, vm.worktreePath);
       state.vms.splice(state.sidebarSelectedIndex, 1);
@@ -269,7 +403,7 @@ async function main() {
       if (state.activeVmIndex >= state.vms.length) {
         state.activeVmIndex = Math.max(-1, state.vms.length - 1);
       }
-      app.setStatusMessage('Branch deleted');
+      app.setStatusMessage("Branch deleted");
     } catch (err: any) {
       vm.pendingAction = undefined;
       vm.lastError = err.message || String(err);
@@ -280,7 +414,7 @@ async function main() {
   });
 
   // Delete all branches handler
-  app.onKey('delete-all', async () => {
+  app.onKey("delete-all", async () => {
     if (state.vms.length === 0) return;
 
     const total = state.vms.length;
@@ -290,7 +424,7 @@ async function main() {
     let failed = 0;
 
     for (const vm of [...state.vms]) {
-      vm.pendingAction = 'deleting...';
+      vm.pendingAction = "deleting...";
       vm.lastError = undefined;
       app.render();
       try {
@@ -299,7 +433,9 @@ async function main() {
         clearQueue(vm.name);
         deleteBranch(repoRoot, vm.name, vm.worktreePath);
         deletedNames.add(vm.name);
-        app.setStatusMessage(`Deleted ${deletedNames.size}/${total} branches...`);
+        app.setStatusMessage(
+          `Deleted ${deletedNames.size}/${total} branches...`,
+        );
         app.render();
       } catch (err: any) {
         vm.pendingAction = undefined;
@@ -313,21 +449,24 @@ async function main() {
     state.activeVmIndex = state.vms.length > 0 ? 0 : -1;
 
     state.rightPaneVmName = null;
-    try { ensureRightPane(); respawnRightPane('bash'); } catch {}
+    try {
+      ensureRightPane();
+      respawnRightPane("bash");
+    } catch {}
 
-    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    const failMsg = failed > 0 ? ` (${failed} failed)` : "";
     app.setStatusMessage(`Deleted ${deletedNames.size} branches${failMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Re-provision selected branch handler
-  app.onKey('reprovision', async () => {
+  app.onKey("reprovision", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm || vm.provisioningStatus !== 'done') return;
+    if (!vm || vm.provisioningStatus !== "done") return;
 
     app.setStatusMessage(`Re-provisioning ${vm.displayLabel ?? vm.name}...`);
-    vm.pendingAction = 're-provisioning...';
+    vm.pendingAction = "re-provisioning...";
     vm.lastError = undefined;
     app.render();
     try {
@@ -348,8 +487,8 @@ async function main() {
   });
 
   // Re-provision all branches handler
-  app.onKey('reprovision-all', async () => {
-    const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
+  app.onKey("reprovision-all", async () => {
+    const targets = state.vms.filter((vm) => vm.provisioningStatus === "done");
     if (targets.length === 0) return;
 
     app.setStatusMessage(`Re-provisioning ${targets.length} branches...`);
@@ -366,7 +505,7 @@ async function main() {
     let failed = 0;
 
     for (const vm of targets) {
-      vm.pendingAction = 're-provisioning...';
+      vm.pendingAction = "re-provisioning...";
       vm.lastError = undefined;
       app.render();
       try {
@@ -374,7 +513,9 @@ async function main() {
         await reprovisionBranch(vm.worktreePath);
         vm.pendingAction = undefined;
         done++;
-        app.setStatusMessage(`Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ''}...`);
+        app.setStatusMessage(
+          `Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ""}...`,
+        );
         app.render();
       } catch (err: any) {
         vm.pendingAction = undefined;
@@ -383,14 +524,14 @@ async function main() {
       }
     }
 
-    const failMsg = failed > 0 ? ` (${failed} failed)` : '';
+    const failMsg = failed > 0 ? ` (${failed} failed)` : "";
     app.setStatusMessage(`${done} branches re-provisioned${failMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Rename branch handler
-  app.onKey('rename-submit', (label: string) => {
+  app.onKey("rename-submit", (label: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
@@ -401,20 +542,23 @@ async function main() {
     } else {
       vm.displayLabel = undefined;
       vm.customLabel = false;
-      app.setStatusMessage('Label reset (will auto-detect)');
+      app.setStatusMessage("Label reset (will auto-detect)");
     }
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Stop/cancel running agent handler
-  app.onKey('stop-agent', async () => {
+  app.onKey("stop-agent", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     killWindow(vm.name);
     if (state.rightPaneVmName === vm.name) {
-      try { ensureRightPane(); respawnRightPane('bash'); } catch {}
+      try {
+        ensureRightPane();
+        respawnRightPane("bash");
+      } catch {}
       state.rightPaneVmName = null;
     }
     vm.taskStartedAt = undefined;
@@ -424,25 +568,29 @@ async function main() {
   });
 
   // Retry provisioning for failed branches
-  app.onKey('retry-provision', async () => {
+  app.onKey("retry-provision", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm || vm.provisioningStatus !== 'failed') return;
+    if (!vm || vm.provisioningStatus !== "failed") return;
 
-    vm.provisioningStatus = 'provisioning';
+    vm.provisioningStatus = "provisioning";
     vm.lastError = undefined;
     app.startSpinner(`${vm.displayLabel ?? vm.name}: Retrying provisioning...`);
     app.render();
     try {
-      await provisionBranch(vm.worktreePath, state.settings ?? undefined, (msg) => {
-        app.updateSpinner(`${vm.displayLabel ?? vm.name}: ${msg}`);
-        appendOutput(vm.name, `${msg}\n`);
-      });
-      vm.provisioningStatus = 'done';
+      await provisionBranch(
+        vm.worktreePath,
+        state.settings ?? undefined,
+        (msg) => {
+          app.updateSpinner(`${vm.displayLabel ?? vm.name}: ${msg}`);
+          appendOutput(vm.name, `${msg}\n`);
+        },
+      );
+      vm.provisioningStatus = "done";
       registerBranch(vm, onBranchDone);
       app.stopSpinner();
       app.setStatusMessage(`✓ ${vm.displayLabel ?? vm.name} provisioned`);
     } catch (err: any) {
-      vm.provisioningStatus = 'failed';
+      vm.provisioningStatus = "failed";
       app.stopSpinner();
       app.setStatusMessage(`Provisioning failed: ${err.message}`);
     }
@@ -451,13 +599,15 @@ async function main() {
   });
 
   // Export log handler
-  app.onKey('export-log', async () => {
+  app.onKey("export-log", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     const lines = getOutput(vm.name);
     if (lines.length === 0) {
-      app.setStatusMessage(`No output to export for ${vm.displayLabel ?? vm.name}`);
+      app.setStatusMessage(
+        `No output to export for ${vm.displayLabel ?? vm.name}`,
+      );
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
@@ -473,17 +623,21 @@ async function main() {
   });
 
   // Open app handler - start dev server and open browser
-  app.onKey('open-app', async () => {
+  app.onKey("open-app", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
-    if (vm.provisioningStatus !== 'done') {
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+    if (vm.provisioningStatus !== "done") {
+      app.setStatusMessage(
+        `${vm.displayLabel ?? vm.name} is not provisioned yet`,
+      );
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
 
-    app.setStatusMessage(`Finding open port for ${vm.displayLabel ?? vm.name}...`);
+    app.setStatusMessage(
+      `Finding open port for ${vm.displayLabel ?? vm.name}...`,
+    );
 
     try {
       const port = await findOpenPort(3000);
@@ -505,9 +659,9 @@ async function main() {
       // Open browser after a short delay to let the server start
       setTimeout(async () => {
         try {
-          const { execSync: exec } = await import('node:child_process');
-          const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
-          exec(`${openCmd} '${url}'`, { stdio: 'pipe' });
+          const { execSync: exec } = await import("node:child_process");
+          const openCmd = process.platform === "darwin" ? "open" : "xdg-open";
+          exec(`${openCmd} '${url}'`, { stdio: "pipe" });
         } catch {
           // Browser open failed silently
         }
@@ -522,7 +676,7 @@ async function main() {
   });
 
   // Queue remove handler
-  app.onKey('queue-remove', (index: number) => {
+  app.onKey("queue-remove", (index: number) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     const removed = removeFromQueue(vm.name, index);
@@ -533,7 +687,7 @@ async function main() {
   });
 
   // Queue clear handler
-  app.onKey('queue-clear', () => {
+  app.onKey("queue-clear", () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     clearQueue(vm.name);
@@ -546,8 +700,11 @@ async function main() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
-    if (vm.provisioningStatus !== 'done') {
-      app.renderPRChain('\n  {yellow-fg}Branch is not provisioned yet{/yellow-fg}', 'PR Chain');
+    if (vm.provisioningStatus !== "done") {
+      app.renderPRChain(
+        "\n  {yellow-fg}Branch is not provisioned yet{/yellow-fg}",
+        "PR Chain",
+      );
       return;
     }
 
@@ -560,7 +717,7 @@ async function main() {
 
       if (prs.length === 0) {
         app.renderPRChain(
-          '\n  {gray-fg}No pull requests found{/gray-fg}\n\n  Hint: create a PR with {bold}gh pr create{/bold}',
+          "\n  {gray-fg}No pull requests found{/gray-fg}\n\n  Hint: create a PR with {bold}gh pr create{/bold}",
           `PR Chain — ${vm.displayLabel ?? vm.name}`,
         );
         return;
@@ -569,36 +726,53 @@ async function main() {
       const tree = buildPRTree(prs, defaultBr);
       const width = (app.screen.width as number) - 4;
       const lines = renderPRTree(tree, currentBr, width);
-      app.renderPRChain('\n' + lines.join('\n'), `PR Chain — ${vm.displayLabel ?? vm.name}`);
+      app.renderPRChain(
+        "\n" + lines.join("\n"),
+        `PR Chain — ${vm.displayLabel ?? vm.name}`,
+      );
     } catch (err: any) {
       const msg = String(err.message || err);
-      if (msg.includes('gh') && (msg.includes('not found') || msg.includes('command not found'))) {
-        app.renderPRChain('\n  {red-fg}GitHub CLI (gh) not available{/red-fg}', 'PR Chain');
-      } else if (msg.includes('not a git repository')) {
-        app.renderPRChain('\n  {red-fg}No git repository found{/red-fg}', 'PR Chain');
+      if (
+        msg.includes("gh") &&
+        (msg.includes("not found") || msg.includes("command not found"))
+      ) {
+        app.renderPRChain(
+          "\n  {red-fg}GitHub CLI (gh) not available{/red-fg}",
+          "PR Chain",
+        );
+      } else if (msg.includes("not a git repository")) {
+        app.renderPRChain(
+          "\n  {red-fg}No git repository found{/red-fg}",
+          "PR Chain",
+        );
       } else {
-        app.renderPRChain(`\n  {red-fg}Error: ${msg}{/red-fg}`, 'PR Chain');
+        app.renderPRChain(`\n  {red-fg}Error: ${msg}{/red-fg}`, "PR Chain");
       }
     }
   }
 
-  app.onKey('pr-chain-open', fetchAndRenderPRChain);
+  app.onKey("pr-chain-open", fetchAndRenderPRChain);
 
-  app.onKey('pr-chain-refresh', async () => {
+  app.onKey("pr-chain-refresh", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     clearPRCache(vm.name);
-    app.renderPRChain('\n  {yellow-fg}Refreshing PR data...{/yellow-fg}', 'PR Chain');
+    app.renderPRChain(
+      "\n  {yellow-fg}Refreshing PR data...{/yellow-fg}",
+      "PR Chain",
+    );
     await fetchAndRenderPRChain();
   });
 
   // PR chain sync handler
-  app.onKey('pr-chain-sync', async () => {
+  app.onKey("pr-chain-sync", async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
-    if (vm.provisioningStatus !== 'done') {
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+    if (vm.provisioningStatus !== "done") {
+      app.setStatusMessage(
+        `${vm.displayLabel ?? vm.name} is not provisioned yet`,
+      );
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
@@ -612,7 +786,7 @@ async function main() {
         getDefaultBranch(vm.worktreePath),
       ]);
 
-      const currentPR = prs.find(pr => pr.headRefName === currentBr);
+      const currentPR = prs.find((pr) => pr.headRefName === currentBr);
       if (!currentPR) {
         app.setStatusMessage(`No PR found for branch "${currentBr}"`);
         setTimeout(() => app.resetStatus(), 3000);
@@ -620,9 +794,11 @@ async function main() {
       }
 
       const stalePRs = findStalePRs(prs, defaultBr);
-      const isStale = stalePRs.some(pr => pr.number === currentPR.number);
+      const isStale = stalePRs.some((pr) => pr.number === currentPR.number);
       if (!isStale) {
-        app.setStatusMessage(`PR #${currentPR.number} is not stale — no sync needed`);
+        app.setStatusMessage(
+          `PR #${currentPR.number} is not stale — no sync needed`,
+        );
         setTimeout(() => app.resetStatus(), 3000);
         return;
       }
@@ -633,7 +809,7 @@ async function main() {
 
       const rebasePrompt = `Your PR #${currentPR.number} (branch "${currentBr}") targets "${currentPR.baseRefName}" which has been merged into ${defaultBr}. Please: 1) git fetch origin, 2) retarget your PR to ${defaultBr} with \`gh pr edit ${currentPR.number} --base ${defaultBr}\`, 3) rebase your branch onto origin/${defaultBr}, 4) resolve any conflicts, 5) force-push with \`git push --force-with-lease\`.`;
       const escapedPrompt = rebasePrompt.replace(/'/g, "'\\''");
-      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
       killWindow(vm.name);
       openVmInRightPane(vm.name, command);
     } catch (err: any) {
@@ -643,57 +819,79 @@ async function main() {
   });
 
   // Linear tasks open handler
-  app.onKey('linear-open', async () => {
+  app.onKey("linear-open", async () => {
     try {
       const issues = await fetchMyIssues();
       app.setLinearIssues(issues);
       const width = (app.screen.width as number) - 4;
       const checkedIds = app.getLinearCheckedIds();
       const lines = renderLinearIssues(issues, 0, width, checkedIds);
-      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+      app.renderLinear(
+        "\n" + lines.join("\n"),
+        `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? "s" : ""}`,
+      );
     } catch (err: any) {
       const msg = String(err.message || err);
-      if (msg.includes('LINEAR_API_KEY')) {
-        app.renderLinear('\n  {red-fg}LINEAR_API_KEY environment variable is not set{/red-fg}\n\n  Get your API key from Linear Settings > API > Personal API keys', 'Linear Tasks');
+      if (msg.includes("LINEAR_API_KEY")) {
+        app.renderLinear(
+          "\n  {red-fg}LINEAR_API_KEY environment variable is not set{/red-fg}\n\n  Get your API key from Linear Settings > API > Personal API keys",
+          "Linear Tasks",
+        );
       } else {
-        app.renderLinear(`\n  {red-fg}Error: ${msg}{/red-fg}`, 'Linear Tasks');
+        app.renderLinear(`\n  {red-fg}Error: ${msg}{/red-fg}`, "Linear Tasks");
       }
     }
   });
 
-  app.onKey('linear-refresh', async () => {
+  app.onKey("linear-refresh", async () => {
     clearLinearCache();
-    app.renderLinear('\n  {yellow-fg}Refreshing Linear tasks...{/yellow-fg}', 'Linear Tasks');
+    app.renderLinear(
+      "\n  {yellow-fg}Refreshing Linear tasks...{/yellow-fg}",
+      "Linear Tasks",
+    );
     try {
       const issues = await fetchMyIssues();
       app.setLinearIssues(issues);
       const width = (app.screen.width as number) - 4;
       const checkedIds = app.getLinearCheckedIds();
       const lines = renderLinearIssues(issues, 0, width, checkedIds);
-      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
+      app.renderLinear(
+        "\n" + lines.join("\n"),
+        `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? "s" : ""}`,
+      );
     } catch (err: any) {
-      app.renderLinear(`\n  {red-fg}Error: ${String(err.message || err)}{/red-fg}`, 'Linear Tasks');
+      app.renderLinear(
+        `\n  {red-fg}Error: ${String(err.message || err)}{/red-fg}`,
+        "Linear Tasks",
+      );
     }
   });
 
-  app.onKey('linear-rerender', async () => {
+  app.onKey("linear-rerender", async () => {
     try {
       const issues = await fetchMyIssues();
       const width = (app.screen.width as number) - 4;
       const idx = app.getLinearSelectedIndex();
       const checkedIds = app.getLinearCheckedIds();
       const lines = renderLinearIssues(issues, idx, width, checkedIds);
-      app.renderLinear('\n' + lines.join('\n'), `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? 's' : ''}`);
-    } catch { /* ignore */ }
+      app.renderLinear(
+        "\n" + lines.join("\n"),
+        `Linear Tasks — ${issues.length} issue${issues.length !== 1 ? "s" : ""}`,
+      );
+    } catch {
+      /* ignore */
+    }
   });
 
   // Linear claim handler - create branches, set issues to In Progress, send prompts
-  app.onKey('linear-claim', async (issues: LinearIssue[]) => {
+  app.onKey("linear-claim", async (issues: LinearIssue[]) => {
     const count = issues.length;
     const label = count === 1 ? issues[0].identifier : `${count} tasks`;
     app.startSpinner(`Claiming ${label}...`);
 
-    async function claimSingleIssue(issue: LinearIssue): Promise<{ ok: boolean; identifier: string }> {
+    async function claimSingleIssue(
+      issue: LinearIssue,
+    ): Promise<{ ok: boolean; identifier: string }> {
       try {
         await startIssue(issue.id);
       } catch {
@@ -702,36 +900,46 @@ async function main() {
 
       try {
         app.updateSpinner(`${issue.identifier}: Creating branch...`);
-        const branchName = issue.branchName || `${issue.identifier.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
-        const vm = createBranch(repoRoot, branchName, state.settings ?? undefined);
+        const branchName =
+          issue.branchName ||
+          `${issue.identifier.toLowerCase().replace(/[^a-z0-9-]/g, "-")}`;
+        const vm = createBranch(
+          repoRoot,
+          branchName,
+          state.settings ?? undefined,
+        );
         vm.displayLabel = issue.identifier;
         vm.customLabel = true;
         state.vms.push(vm);
         app.render();
 
         // Provision
-        vm.provisioningStatus = 'provisioning';
+        vm.provisioningStatus = "provisioning";
         app.render();
         try {
-          await provisionBranch(vm.worktreePath, state.settings ?? undefined, (msg) => {
-            app.updateSpinner(`${issue.identifier}: ${msg}`);
-            appendOutput(vm.name, `${msg}\n`);
-          });
-          vm.provisioningStatus = 'done';
+          await provisionBranch(
+            vm.worktreePath,
+            state.settings ?? undefined,
+            (msg) => {
+              app.updateSpinner(`${issue.identifier}: ${msg}`);
+              appendOutput(vm.name, `${msg}\n`);
+            },
+          );
+          vm.provisioningStatus = "done";
           registerBranch(vm, onBranchDone);
         } catch {
-          vm.provisioningStatus = 'failed';
+          vm.provisioningStatus = "failed";
           app.render();
           return { ok: false, identifier: issue.identifier };
         }
 
-        // Send the task as a prompt via docker sandbox
+        // Send the task as a prompt via claude
         vm.taskStartedAt = Date.now();
         const prompt = `Do linear task ${issue.identifier}`;
-        const escapedPrompt = prompt.replace(/"/g, '\\"');
-        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && docker sandbox run claude "${escapedPrompt}"`;
+        const escapedPrompt = prompt.replace(/'/g, "'\\''");
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
         killWindow(vm.name);
-        createWindow(vm.name, command);
+        openVmInRightPane(vm.name, command);
 
         app.render();
         return { ok: true, identifier: issue.identifier };
@@ -741,8 +949,8 @@ async function main() {
     }
 
     const results = await Promise.all(issues.map(claimSingleIssue));
-    const succeeded = results.filter(r => r.ok);
-    const failed = results.filter(r => !r.ok);
+    const succeeded = results.filter((r) => r.ok);
+    const failed = results.filter((r) => !r.ok);
 
     if (state.vms.length > 0) {
       state.sidebarSelectedIndex = state.vms.length - 1;
@@ -751,49 +959,64 @@ async function main() {
 
     app.stopSpinner();
     if (failed.length === 0) {
-      app.setStatusMessage(`✓ ${succeeded.length} task${succeeded.length !== 1 ? 's' : ''} claimed and sent to agents`);
+      app.setStatusMessage(
+        `✓ ${succeeded.length} task${succeeded.length !== 1 ? "s" : ""} claimed and sent to agents`,
+      );
     } else {
-      app.setStatusMessage(`${succeeded.length} claimed, ${failed.length} failed (${failed.map(f => f.identifier).join(', ')})`);
+      app.setStatusMessage(
+        `${succeeded.length} claimed, ${failed.length} failed (${failed.map((f) => f.identifier).join(", ")})`,
+      );
     }
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Grid open handler - create tmux grid of all agent terminals
-  app.onKey('grid-open', () => {
-    // Only include branches that have a tmux window (i.e., running a task)
-    const activeBranches = state.vms.filter(vm => vm.taskStartedAt != null);
+  app.onKey("grid-open", () => {
+    const activeBranches = state.vms.filter(
+      (vm) => vm.provisioningStatus === "done",
+    );
     if (activeBranches.length === 0) {
-      app.setStatusMessage('No active agent terminals to show in grid');
-      state.mode = 'normal';
+      app.setStatusMessage("No branches to show in grid");
+      state.mode = "normal";
       app.resetStatus();
       return;
     }
     try {
+      // Break right pane out to its own window so the grid can capture from it
+      if (rightPaneExists() && state.rightPaneVmName) {
+        try {
+          breakRightPaneToWindow(state.rightPaneVmName);
+        } catch {
+          try { killRightPane(); } catch {}
+        }
+      }
       killGridWindow(); // Clean up any existing grid
       createGridWindow(activeBranches);
     } catch (err: any) {
       app.setStatusMessage(`Grid failed: ${err.message}`);
-      state.mode = 'normal';
+      state.mode = "normal";
       setTimeout(() => app.resetStatus(), 3000);
     }
   });
 
   // Grid close handler - kill grid window, return to control pane
-  app.onKey('grid-close', () => {
+  app.onKey("grid-close", () => {
     killGridWindow();
     switchToControlPane();
   });
 
-  // Prompt submit handler - run claude -p in worktree
-  app.onKey('prompt-submit', async (prompt: string) => {
+  // Prompt submit handler - run CLAUDE_CMD -p in worktree
+  app.onKey("prompt-submit", async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     await addToHistory(prompt);
 
-    if (vm.provisioningStatus !== 'done') {
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+    if (vm.provisioningStatus !== "done") {
+      app.setStatusMessage(
+        `${vm.displayLabel ?? vm.name} is not provisioned yet`,
+      );
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
@@ -803,30 +1026,32 @@ async function main() {
     app.render();
 
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
-    const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+    const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
 
     killWindow(vm.name);
     openVmInRightPane(vm.name, command);
   });
 
   // Broadcast prompt handler
-  app.onKey('broadcast-submit', async (prompt: string) => {
+  app.onKey("broadcast-submit", async (prompt: string) => {
     await addToHistory(prompt);
 
-    const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
+    const targets = state.vms.filter((vm) => vm.provisioningStatus === "done");
     if (targets.length === 0) {
-      app.setStatusMessage('No provisioned branches to broadcast to');
+      app.setStatusMessage("No provisioned branches to broadcast to");
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
 
-    app.setStatusMessage(`Broadcasting prompt to ${targets.length} agent(s)...`);
+    app.setStatusMessage(
+      `Broadcasting prompt to ${targets.length} agent(s)...`,
+    );
 
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
 
     for (const vm of targets) {
       vm.taskStartedAt = Date.now();
-      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
       if (vm.name === state.rightPaneVmName) {
         ensureRightPane();
         respawnRightPane(command);
@@ -842,21 +1067,25 @@ async function main() {
   });
 
   // Queue prompt handler
-  app.onKey('queue-submit', async (prompt: string) => {
+  app.onKey("queue-submit", async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     await addToHistory(prompt);
 
-    if (vm.provisioningStatus !== 'done') {
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+    if (vm.provisioningStatus !== "done") {
+      app.setStatusMessage(
+        `${vm.displayLabel ?? vm.name} is not provisioned yet`,
+      );
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
 
     enqueue(vm.name, prompt);
     const count = queueSize(vm.name);
-    app.setStatusMessage(`Queued prompt for ${vm.displayLabel ?? vm.name} (${count} in queue)`);
+    app.setStatusMessage(
+      `Queued prompt for ${vm.displayLabel ?? vm.name} (${count} in queue)`,
+    );
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
 
@@ -868,7 +1097,7 @@ async function main() {
 
       vm.taskStartedAt = Date.now();
       const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
-      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
 
       if (vm.name === state.rightPaneVmName) {
         ensureRightPane();
@@ -877,19 +1106,21 @@ async function main() {
         killWindow(vm.name);
         createWindow(vm.name, command);
       }
-      app.setStatusMessage(`Sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
+      app.setStatusMessage(
+        `Sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`,
+      );
       app.render();
       setTimeout(() => app.resetStatus(), 3000);
     }
   });
 
   // Broadcast queue prompt handler
-  app.onKey('broadcast-queue-submit', async (prompt: string) => {
+  app.onKey("broadcast-queue-submit", async (prompt: string) => {
     await addToHistory(prompt);
 
-    const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
+    const targets = state.vms.filter((vm) => vm.provisioningStatus === "done");
     if (targets.length === 0) {
-      app.setStatusMessage('No provisioned branches to broadcast queue to');
+      app.setStatusMessage("No provisioned branches to broadcast queue to");
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
@@ -903,7 +1134,7 @@ async function main() {
       if (vm.needsAttention || !vm.taskStartedAt) {
         if (vm.needsAttention) clearAttention(vm);
         vm.taskStartedAt = Date.now();
-        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && ${CLAUDE_CMD} '${escapedPrompt}'`;
         if (vm.name === state.rightPaneVmName) {
           ensureRightPane();
           respawnRightPane(command);
@@ -921,25 +1152,29 @@ async function main() {
     const parts: string[] = [];
     if (sent > 0) parts.push(`sent to ${sent}`);
     if (queued > 0) parts.push(`queued on ${queued}`);
-    app.setStatusMessage(`Broadcast queue: ${parts.join(', ')} agent(s)`);
+    app.setStatusMessage(`Broadcast queue: ${parts.join(", ")} agent(s)`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Ralph prompt handler - run iterative claude loop
-  app.onKey('ralph-submit', async (prompt: string, iterations: number) => {
+  app.onKey("ralph-submit", async (prompt: string, iterations: number) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     await addToHistory(prompt);
 
-    if (vm.provisioningStatus !== 'done') {
-      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+    if (vm.provisioningStatus !== "done") {
+      app.setStatusMessage(
+        `${vm.displayLabel ?? vm.name} is not provisioned yet`,
+      );
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
 
-    app.setStatusMessage(`Starting Ralph on ${vm.displayLabel ?? vm.name} (${iterations} iterations)...`);
+    app.setStatusMessage(
+      `Starting Ralph on ${vm.displayLabel ?? vm.name} (${iterations} iterations)...`,
+    );
 
     vm.taskStartedAt = Date.now();
     state.activeVmIndex = state.sidebarSelectedIndex;
@@ -951,7 +1186,7 @@ async function main() {
       `for i in $(seq 1 ${iterations}); do`,
       `  echo "=== Ralph iteration $i/${iterations} ==="`,
       `  tmpfile=$(mktemp)`,
-      `  claude --dangerously-skip-permissions -p '${escapedPrompt}' 2>&1 | tee "$tmpfile"`,
+      `  ${CLAUDE_CMD} '${escapedPrompt}' 2>&1 | tee "$tmpfile"`,
       `  if grep -q '<promise>COMPLETE</promise>' "$tmpfile"; then`,
       `    echo "Ralph complete after $i iterations."`,
       `    rm -f "$tmpfile"`,
@@ -959,7 +1194,7 @@ async function main() {
       `  fi`,
       `  rm -f "$tmpfile"`,
       `done`,
-    ].join('; ');
+    ].join("; ");
 
     const command = `bash -c '${ralphScript.replace(/'/g, "'\\''")}'`;
     killWindow(vm.name);
@@ -967,23 +1202,29 @@ async function main() {
   });
 
   // Copy error to clipboard handler
-  app.onKey('copy-error', async () => {
+  app.onKey("copy-error", async () => {
     const error = app.getSelectedVMError();
     if (!error) return;
 
-    const { execFile } = await import('node:child_process');
-    const commands: [string, string[]][] = process.platform === 'darwin'
-      ? [['pbcopy', []]]
-      : [['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]];
+    const { execFile } = await import("node:child_process");
+    const commands: [string, string[]][] =
+      process.platform === "darwin"
+        ? [["pbcopy", []]]
+        : [
+            ["xclip", ["-selection", "clipboard"]],
+            ["xsel", ["--clipboard", "--input"]],
+          ];
 
     for (const [cmd, args] of commands) {
       try {
         await new Promise<void>((resolve, reject) => {
-          const proc = execFile(cmd, args, (err) => err ? reject(err) : resolve());
+          const proc = execFile(cmd, args, (err) =>
+            err ? reject(err) : resolve(),
+          );
           proc.stdin?.write(error);
           proc.stdin?.end();
         });
-        app.setStatusMessage('Error copied to clipboard');
+        app.setStatusMessage("Error copied to clipboard");
         setTimeout(() => app.resetStatus(), 2000);
         return;
       } catch {
@@ -991,12 +1232,14 @@ async function main() {
       }
     }
 
-    app.setStatusMessage('Failed to copy error: no clipboard command available');
+    app.setStatusMessage(
+      "Failed to copy error: no clipboard command available",
+    );
     setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Quit handler
-  app.onKey('quit', async () => {
+  app.onKey("quit", async () => {
     stopMonitor();
     clearAllQueues();
     killGridWindow();
@@ -1010,10 +1253,10 @@ async function main() {
     killSession();
     process.exit(0);
   };
-  process.on('SIGTERM', signalHandler);
+  process.on("SIGTERM", signalHandler);
 }
 
 main().catch((err) => {
-  console.error('Fatal error:', err);
+  console.error("Fatal error:", err);
   process.exit(1);
 });

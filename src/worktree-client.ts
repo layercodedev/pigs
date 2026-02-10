@@ -117,6 +117,7 @@ export function copyConfigFiles(repoRoot: string, worktreePath: string, settings
     '.dev.vars',
     '.env',
     '.env.local',
+    '.mcp.json',
     ...(settings?.copyFiles ?? []),
   ];
 

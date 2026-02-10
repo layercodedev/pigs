@@ -11,6 +11,7 @@ export interface Branch {
   pendingAction?: string;
   lastError?: string;
   devServerPort?: number;
+  copiedFiles?: string[];
 }
 
 // Backwards-compatible alias
@@ -27,7 +28,7 @@ export interface AppState {
   vms: Branch[];
   activeVmIndex: number;
   sidebarSelectedIndex: number;
-  mode: 'normal' | 'confirm-delete' | 'creating' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search' | 'rename' | 'dashboard' | 'queue' | 'broadcast-queue' | 'queue-viewer' | 'ralph-iterations' | 'ralph-prompt' | 'pr-chain' | 'linear' | 'grid';
+  mode: 'normal' | 'confirm-delete' | 'creating' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search' | 'rename' | 'dashboard' | 'queue' | 'broadcast-queue' | 'queue-viewer' | 'ralph-iterations' | 'ralph-prompt' | 'pr-chain' | 'linear' | 'grid' | 'command-menu';
   searchFilter: string;
   sortMode: SortMode;
   settings: PigsSettings | null;
