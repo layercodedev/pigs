@@ -1,11 +1,10 @@
-export interface VM {
+export interface Branch {
   name: string;
-  id: string;
-  status: 'cold' | 'running' | 'stopped';
+  worktreePath: string;
+  status: 'active' | 'idle';
   createdAt: string;
   needsAttention: boolean;
   provisioningStatus?: 'pending' | 'provisioning' | 'done' | 'failed';
-  mountPath?: string;
   displayLabel?: string;
   customLabel?: boolean;
   taskStartedAt?: number;
@@ -13,15 +12,18 @@ export interface VM {
   lastError?: string;
 }
 
+// Backwards-compatible alias
+export type VM = Branch;
+
 export interface PigsSettings {
   claudeMd: string;
-  openInVscode?: boolean;
+  copyFiles?: string[];
 }
 
 export type SortMode = 'default' | 'name' | 'status' | 'attention' | 'elapsed';
 
 export interface AppState {
-  vms: VM[];
+  vms: Branch[];
   activeVmIndex: number;
   sidebarSelectedIndex: number;
   mode: 'normal' | 'confirm-delete' | 'creating' | 'prompt' | 'broadcast' | 'help' | 'bulk-create' | 'confirm-delete-all' | 'confirm-reprovision-all' | 'search' | 'rename' | 'dashboard' | 'queue' | 'broadcast-queue' | 'queue-viewer' | 'ralph-iterations' | 'ralph-prompt' | 'pr-chain' | 'linear';
@@ -30,4 +32,5 @@ export interface AppState {
   settings: PigsSettings | null;
   rightPaneVmName: string | null;
   sidebarHidden: boolean;
+  repoRoot: string;
 }

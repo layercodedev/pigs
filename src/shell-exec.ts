@@ -1,12 +1,13 @@
-import type { Sprite, ExecResult } from '@fly/sprites';
+import { execSync } from 'node:child_process';
 
 /**
- * Run a shell command on a sprite via bash -c.
- *
- * sprite.exec() splits on whitespace and doesn't use a shell,
- * so pipes, redirects, &&/||, and multi-line scripts all need
- * to go through this wrapper instead.
+ * Run a shell command in a directory and return the result.
  */
-export function shellExec(sprite: Sprite, script: string): Promise<ExecResult> {
-  return sprite.execFile('bash', ['-c', script]);
+export function shellExec(cwd: string, script: string): { stdout: string } {
+  const stdout = execSync(script, {
+    cwd,
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  });
+  return { stdout };
 }

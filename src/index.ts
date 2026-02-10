@@ -1,14 +1,9 @@
 #!/usr/bin/env bun
 
 import { createApp } from './tui.ts';
-import { createSpritesClient, listVMs, createVM, deleteVM } from './sprites-client.ts';
-import {
-  destroyConsole,
-  detachAll,
-} from './console-session.ts';
-import { loadSettings, provisionVM, reprovisionVM } from './provisioner.ts';
+import { listBranches, createBranch, deleteBranch, generateBranchName, getRepoRoot, copyConfigFiles } from './worktree-client.ts';
+import { loadSettings, provisionBranch, reprovisionBranch } from './provisioner.ts';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.ts';
-import { mountVM, unmountVM, unmountAll, isMounted } from './mount-session.ts';
 import { loadHistory, addToHistory } from './prompt-history.ts';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
 import { exportLog } from './log-export.ts';
@@ -32,36 +27,33 @@ import {
   rightPaneExists,
   zoomPane,
 } from './tmux.ts';
-import { execFile } from 'node:child_process';
-import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
   // Ensure we're inside a tmux session.
-  // If not, create one running pigs and attach to it.
   if (!insideTmux()) {
     const name = getSessionName();
     if (!sessionExists(name)) {
-      // Re-launch pigs as the initial command inside the tmux session
       const cmd = process.argv.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
       createSession(name, cmd);
     }
     attachSession(name);
-    // attachSession blocks until the user detaches from tmux.
     process.exit(0);
   }
 
-  let client: SpritesClient;
+  // Verify we're in a git repo
+  let repoRoot: string;
   try {
-    client = createSpritesClient();
-  } catch (err: any) {
-    console.error(err.message);
+    repoRoot = getRepoRoot();
+  } catch {
+    console.error('Error: pigs must be run inside a git repository');
     process.exit(1);
   }
 
   const app = createApp();
   const { state } = app;
+  state.repoRoot = repoRoot;
 
-  // Load settings on first run (creates ~/.pigs/settings.json if missing)
+  // Load settings
   try {
     state.settings = await loadSettings();
   } catch (err: any) {
@@ -71,28 +63,28 @@ async function main() {
   // Load prompt history
   await loadHistory();
 
-  // Load existing VMs
-  app.setStatusMessage('Loading VMs...');
+  // Load existing worktree branches
+  app.setStatusMessage('Loading branches...');
   try {
-    state.vms = await listVMs(client);
+    state.vms = listBranches(repoRoot);
     if (state.vms.length > 0) {
       state.activeVmIndex = 0;
       state.sidebarSelectedIndex = 0;
     }
   } catch (err: any) {
-    app.setStatusMessage(`Error loading VMs: ${err.message}`);
+    app.setStatusMessage(`Error loading branches: ${err.message}`);
   }
 
   app.render();
   app.resetStatus();
 
-  // Create the right pane (with -d so focus stays on blessed) and set sidebar width
+  // Create the right pane and set sidebar width
   createRightPane();
   setLeftPaneWidth(34);
 
   /**
-   * Process prompt queues: when a VM finishes a task and has queued prompts,
-   * automatically send the next prompt via a tmux window.
+   * Process prompt queues: when a branch finishes a task and has queued prompts,
+   * automatically send the next prompt.
    */
   async function processQueues() {
     for (const vm of state.vms) {
@@ -100,12 +92,10 @@ async function main() {
         const nextPrompt = dequeue(vm.name);
         if (!nextPrompt) continue;
 
-        // Clear attention — we're sending the next task
         clearAttention(vm);
-
         vm.taskStartedAt = Date.now();
         const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
-        const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
 
         if (vm.name === state.rightPaneVmName) {
           ensureRightPane();
@@ -121,19 +111,16 @@ async function main() {
     }
   }
 
-  // Start polling VMs for Claude Code finish notifications
-  startMonitor(client, state.vms, () => {
+  // Start polling for Claude Code finish notifications
+  startMonitor(state.vms, () => {
     app.render();
     processQueues();
   });
 
+  // Selection changed handler
+  app.onKey('selection-changed', () => {});
 
-  // Selection changed handler — no-op for preview (right pane is live)
-  app.onKey('selection-changed', () => {
-    // Preview is handled by the live tmux right pane
-  });
-
-  // Toggle sidebar handler (Tab key) — zoom right pane to hide sidebar
+  // Toggle sidebar handler (Tab key)
   app.onKey('toggle-sidebar', () => {
     ensureRightPane();
     try {
@@ -143,9 +130,6 @@ async function main() {
     } catch {}
   });
 
-  /**
-   * Ensure the right pane exists. If it was closed, recreate it.
-   */
   function ensureRightPane() {
     if (!rightPaneExists()) {
       createRightPane();
@@ -153,9 +137,6 @@ async function main() {
     }
   }
 
-  /**
-   * Open a VM command in the right pane.
-   */
   function openVmInRightPane(vmName: string, command: string) {
     ensureRightPane();
     respawnRightPane(command);
@@ -163,48 +144,41 @@ async function main() {
     focusRightPane();
   }
 
-  // Activate VM handler - open VM in right pane
+  // Activate branch handler - open shell in worktree in right pane
   app.onKey('activate', async () => {
     const vm = state.vms[state.activeVmIndex];
     if (!vm) return;
 
-    // Clear attention indicator when user activates this VM
     clearAttention(vm);
     app.render();
 
-    // Open VM in the right pane
-    openVmInRightPane(vm.name, `sprite -s ${vm.name} exec -tty bash`);
+    openVmInRightPane(vm.name, `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && bash`);
   });
 
-  // Create VM handler
+  // Create branch handler
   app.onKey('create', async () => {
     state.mode = 'creating';
-    app.startSpinner('Creating VM...');
+    app.startSpinner('Creating branch...');
     try {
-      const vm = await createVM(client);
-      vm.provisioningStatus = 'pending';
+      const branchName = generateBranchName();
+      const vm = createBranch(repoRoot, branchName, state.settings ?? undefined);
       state.vms.push(vm);
       state.sidebarSelectedIndex = state.vms.length - 1;
       state.activeVmIndex = state.vms.length - 1;
       state.mode = 'normal';
-      app.render();
 
-      // Provision in background
+      // Provision (write hooks config)
       vm.provisioningStatus = 'provisioning';
       app.updateSpinner(`${vm.name}: Provisioning...`);
       app.render();
       try {
-        await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+        await provisionBranch(vm.worktreePath, state.settings ?? undefined, (msg) => {
           app.updateSpinner(`${vm.name}: ${msg}`);
           appendOutput(vm.name, `${msg}\n`);
-          const selectedVm = state.vms[state.sidebarSelectedIndex];
-          if (selectedVm && selectedVm.name === vm.name) {
-            app.showPreview(getOutput(vm.name));
-          }
         });
         vm.provisioningStatus = 'done';
         app.stopSpinner();
-        app.setStatusMessage(`✓ ${vm.name} provisioned`);
+        app.setStatusMessage(`✓ ${vm.name} created`);
       } catch (err: any) {
         vm.provisioningStatus = 'failed';
         app.stopSpinner();
@@ -212,107 +186,73 @@ async function main() {
       }
     } catch (err: any) {
       app.stopSpinner();
-      app.setStatusMessage(`Error creating VM: ${err.message}`);
+      app.setStatusMessage(`Error creating branch: ${err.message}`);
       state.mode = 'normal';
     }
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Bulk create VMs handler
+  // Bulk create branches handler
   app.onKey('bulk-create', async (count: number) => {
     state.mode = 'creating';
-    app.startSpinner(`Creating ${count} VMs...`);
+    app.startSpinner(`Creating ${count} branches...`);
 
     let created = 0;
     let failed = 0;
 
-    // Create all VMs in parallel
-    const createPromises = Array.from({ length: count }, async () => {
+    for (let i = 0; i < count; i++) {
       try {
-        const vm = await createVM(client);
-        vm.provisioningStatus = 'pending';
+        const branchName = generateBranchName();
+        const vm = createBranch(repoRoot, branchName, state.settings ?? undefined);
         state.vms.push(vm);
         created++;
-        app.updateSpinner(`Created ${created}/${count} VMs...`);
+        app.updateSpinner(`Created ${created}/${count} branches...`);
         app.render();
-        return vm;
+
+        // Provision
+        vm.provisioningStatus = 'provisioning';
+        try {
+          await provisionBranch(vm.worktreePath, state.settings ?? undefined);
+          vm.provisioningStatus = 'done';
+        } catch {
+          vm.provisioningStatus = 'failed';
+        }
       } catch {
         failed++;
-        return null;
       }
-    });
+    }
 
-    const results = await Promise.all(createPromises);
-    const newVMs = results.filter((vm): vm is NonNullable<typeof vm> => vm !== null);
-
-    // Select the first new VM
-    if (newVMs.length > 0) {
-      state.sidebarSelectedIndex = state.vms.indexOf(newVMs[0]);
-      state.activeVmIndex = state.sidebarSelectedIndex;
+    if (state.vms.length > 0) {
+      state.sidebarSelectedIndex = state.vms.length - 1;
+      state.activeVmIndex = state.vms.length - 1;
     }
     state.mode = 'normal';
 
     const failMsg = failed > 0 ? ` (${failed} failed)` : '';
-    app.updateSpinner(`Created ${created} VMs${failMsg}, provisioning...`);
-    app.render();
-
-    // Provision all new VMs in parallel
-    let provisioned = 0;
-    let provFailed = 0;
-    const provisionPromises = newVMs.map(async (vm) => {
-      vm.provisioningStatus = 'provisioning';
-      app.render();
-      try {
-        await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
-          app.updateSpinner(`${vm.name}: ${msg}`);
-          appendOutput(vm.name, `${msg}\n`);
-          const selectedVm = state.vms[state.sidebarSelectedIndex];
-          if (selectedVm && selectedVm.name === vm.name) {
-            app.showPreview(getOutput(vm.name));
-          }
-        });
-        vm.provisioningStatus = 'done';
-        provisioned++;
-        app.updateSpinner(`Provisioned ${provisioned}/${newVMs.length}${provFailed > 0 ? ` (${provFailed} failed)` : ''}...`);
-        app.render();
-      } catch {
-        vm.provisioningStatus = 'failed';
-        provFailed++;
-        app.render();
-      }
-    });
-
-    await Promise.all(provisionPromises);
     app.stopSpinner();
-    const provFailMsg = provFailed > 0 ? ` (${provFailed} failed)` : '';
-    app.setStatusMessage(`✓ ${provisioned} VMs provisioned${provFailMsg}`);
+    app.setStatusMessage(`✓ ${created} branches created${failMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Delete VM handler
+  // Delete branch handler
   app.onKey('delete', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
-    app.setStatusMessage(`Deleting VM: ${vm.name}...`);
+    app.setStatusMessage(`Deleting branch: ${vm.name}...`);
     vm.pendingAction = 'deleting...';
     vm.lastError = undefined;
     app.render();
     try {
-      if (isMounted(vm.name)) {
-        await unmountVM(vm.name);
-      }
       killWindow(vm.name);
-      destroyConsole(vm.name);
       clearOutput(vm.name);
       clearQueue(vm.name);
-      // Reset right pane if this was the displayed VM
       if (state.rightPaneVmName === vm.name) {
         state.rightPaneVmName = null;
         try { ensureRightPane(); respawnRightPane('bash'); } catch {}
       }
-      await deleteVM(client, vm.name);
+      deleteBranch(repoRoot, vm.name, vm.worktreePath);
       state.vms.splice(state.sidebarSelectedIndex, 1);
       if (state.sidebarSelectedIndex >= state.vms.length) {
         state.sidebarSelectedIndex = Math.max(0, state.vms.length - 1);
@@ -320,69 +260,59 @@ async function main() {
       if (state.activeVmIndex >= state.vms.length) {
         state.activeVmIndex = Math.max(-1, state.vms.length - 1);
       }
-      app.setStatusMessage('VM deleted');
+      app.setStatusMessage('Branch deleted');
     } catch (err: any) {
       vm.pendingAction = undefined;
       vm.lastError = err.message || String(err);
-      app.setStatusMessage(`Error deleting VM: ${err.message}`);
+      app.setStatusMessage(`Error deleting branch: ${err.message}`);
     }
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Delete all VMs handler
+  // Delete all branches handler
   app.onKey('delete-all', async () => {
     if (state.vms.length === 0) return;
 
     const total = state.vms.length;
-    app.setStatusMessage(`Deleting all ${total} VMs...`);
+    app.setStatusMessage(`Deleting all ${total} branches...`);
 
     const deletedNames = new Set<string>();
     let failed = 0;
 
-    // Delete all VMs in parallel
-    const deletePromises = [...state.vms].map(async (vm) => {
+    for (const vm of [...state.vms]) {
       vm.pendingAction = 'deleting...';
       vm.lastError = undefined;
       app.render();
       try {
-        if (isMounted(vm.name)) {
-          await unmountVM(vm.name);
-          vm.mountPath = undefined;
-        }
         killWindow(vm.name);
-        destroyConsole(vm.name);
         clearOutput(vm.name);
         clearQueue(vm.name);
-        await deleteVM(client, vm.name);
+        deleteBranch(repoRoot, vm.name, vm.worktreePath);
         deletedNames.add(vm.name);
-        app.setStatusMessage(`Deleted ${deletedNames.size}/${total} VMs...`);
+        app.setStatusMessage(`Deleted ${deletedNames.size}/${total} branches...`);
         app.render();
       } catch (err: any) {
         vm.pendingAction = undefined;
         vm.lastError = err.message || String(err);
         failed++;
       }
-    });
+    }
 
-    await Promise.all(deletePromises);
-
-    // Remove successfully deleted VMs from state
     state.vms = state.vms.filter((vm) => !deletedNames.has(vm.name));
     state.sidebarSelectedIndex = 0;
     state.activeVmIndex = state.vms.length > 0 ? 0 : -1;
 
-    // Reset right pane
     state.rightPaneVmName = null;
     try { ensureRightPane(); respawnRightPane('bash'); } catch {}
 
     const failMsg = failed > 0 ? ` (${failed} failed)` : '';
-    app.setStatusMessage(`Deleted ${deletedNames.size} VMs${failMsg}`);
+    app.setStatusMessage(`Deleted ${deletedNames.size} branches${failMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Re-provision selected VM handler
+  // Re-provision selected branch handler
   app.onKey('reprovision', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm || vm.provisioningStatus !== 'done') return;
@@ -392,9 +322,9 @@ async function main() {
     vm.lastError = undefined;
     app.render();
     try {
-      // Reload settings from disk
       state.settings = await loadSettings();
-      await reprovisionVM(client, vm.name, (msg) => {
+      copyConfigFiles(repoRoot, vm.worktreePath, state.settings ?? undefined);
+      await reprovisionBranch(vm.worktreePath, (msg) => {
         app.setStatusMessage(`${vm.displayLabel ?? vm.name}: ${msg}`);
       });
       vm.pendingAction = undefined;
@@ -408,14 +338,13 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Re-provision all VMs handler
+  // Re-provision all branches handler
   app.onKey('reprovision-all', async () => {
     const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
     if (targets.length === 0) return;
 
-    app.setStatusMessage(`Re-provisioning ${targets.length} VMs...`);
+    app.setStatusMessage(`Re-provisioning ${targets.length} branches...`);
 
-    // Reload settings from disk once
     try {
       state.settings = await loadSettings();
     } catch (err: any) {
@@ -427,12 +356,13 @@ async function main() {
     let done = 0;
     let failed = 0;
 
-    const promises = targets.map(async (vm) => {
+    for (const vm of targets) {
       vm.pendingAction = 're-provisioning...';
       vm.lastError = undefined;
       app.render();
       try {
-        await reprovisionVM(client, vm.name);
+        copyConfigFiles(repoRoot, vm.worktreePath, state.settings ?? undefined);
+        await reprovisionBranch(vm.worktreePath);
         vm.pendingAction = undefined;
         done++;
         app.setStatusMessage(`Re-provisioned ${done}/${targets.length}${failed > 0 ? ` (${failed} failed)` : ''}...`);
@@ -442,16 +372,15 @@ async function main() {
         vm.lastError = err.message || String(err);
         failed++;
       }
-    });
+    }
 
-    await Promise.all(promises);
     const failMsg = failed > 0 ? ` (${failed} failed)` : '';
-    app.setStatusMessage(`${done} VMs re-provisioned${failMsg}`);
+    app.setStatusMessage(`${done} branches re-provisioned${failMsg}`);
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Rename VM handler - set custom displayLabel
+  // Rename branch handler
   app.onKey('rename-submit', (label: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -461,7 +390,6 @@ async function main() {
       vm.customLabel = true;
       app.setStatusMessage(`Renamed to "${label}"`);
     } else {
-      // Empty label resets to auto-detected label (will be updated by monitor)
       vm.displayLabel = undefined;
       vm.customLabel = false;
       app.setStatusMessage('Label reset (will auto-detect)');
@@ -470,13 +398,12 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Stop/cancel running agent handler - kill the tmux window for this VM
+  // Stop/cancel running agent handler
   app.onKey('stop-agent', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     killWindow(vm.name);
-    // If this VM was in the right pane, reset it
     if (state.rightPaneVmName === vm.name) {
       try { ensureRightPane(); respawnRightPane('bash'); } catch {}
       state.rightPaneVmName = null;
@@ -487,7 +414,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Retry provisioning for failed VMs
+  // Retry provisioning for failed branches
   app.onKey('retry-provision', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm || vm.provisioningStatus !== 'failed') return;
@@ -497,13 +424,9 @@ async function main() {
     app.startSpinner(`${vm.displayLabel ?? vm.name}: Retrying provisioning...`);
     app.render();
     try {
-      await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+      await provisionBranch(vm.worktreePath, state.settings ?? undefined, (msg) => {
         app.updateSpinner(`${vm.displayLabel ?? vm.name}: ${msg}`);
         appendOutput(vm.name, `${msg}\n`);
-        const selectedVm = state.vms[state.sidebarSelectedIndex];
-        if (selectedVm && selectedVm.name === vm.name) {
-          app.showPreview(getOutput(vm.name));
-        }
       });
       vm.provisioningStatus = 'done';
       app.stopSpinner();
@@ -517,7 +440,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Export VM console log handler
+  // Export log handler
   app.onKey('export-log', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -539,7 +462,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Queue remove handler - remove a single prompt from the queue at a given index
+  // Queue remove handler
   app.onKey('queue-remove', (index: number) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -550,7 +473,7 @@ async function main() {
     }
   });
 
-  // Queue clear handler - clear all prompts from the selected VM's queue
+  // Queue clear handler
   app.onKey('queue-clear', () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -559,21 +482,21 @@ async function main() {
     app.render();
   });
 
-  // Fetch and render PR chain for a VM
+  // Fetch and render PR chain for a branch
   async function fetchAndRenderPRChain() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
 
     if (vm.provisioningStatus !== 'done') {
-      app.renderPRChain('\n  {yellow-fg}VM is not provisioned yet{/yellow-fg}', 'PR Chain');
+      app.renderPRChain('\n  {yellow-fg}Branch is not provisioned yet{/yellow-fg}', 'PR Chain');
       return;
     }
 
     try {
-      const [prs, currentBranch, defaultBranch] = await Promise.all([
-        fetchPRChain(client, vm.name),
-        getCurrentBranch(client, vm.name),
-        getDefaultBranch(client, vm.name),
+      const [prs, currentBr, defaultBr] = await Promise.all([
+        fetchPRChain(vm.worktreePath, vm.name),
+        getCurrentBranch(vm.worktreePath),
+        getDefaultBranch(vm.worktreePath),
       ]);
 
       if (prs.length === 0) {
@@ -584,36 +507,33 @@ async function main() {
         return;
       }
 
-      const tree = buildPRTree(prs, defaultBranch);
+      const tree = buildPRTree(prs, defaultBr);
       const width = (app.screen.width as number) - 4;
-      const lines = renderPRTree(tree, currentBranch, width);
+      const lines = renderPRTree(tree, currentBr, width);
       app.renderPRChain('\n' + lines.join('\n'), `PR Chain — ${vm.displayLabel ?? vm.name}`);
     } catch (err: any) {
       const msg = String(err.message || err);
       if (msg.includes('gh') && (msg.includes('not found') || msg.includes('command not found'))) {
-        app.renderPRChain('\n  {red-fg}GitHub CLI (gh) not available on this VM{/red-fg}', 'PR Chain');
+        app.renderPRChain('\n  {red-fg}GitHub CLI (gh) not available{/red-fg}', 'PR Chain');
       } else if (msg.includes('not a git repository')) {
-        app.renderPRChain('\n  {red-fg}No git repository found on this VM{/red-fg}', 'PR Chain');
+        app.renderPRChain('\n  {red-fg}No git repository found{/red-fg}', 'PR Chain');
       } else {
         app.renderPRChain(`\n  {red-fg}Error: ${msg}{/red-fg}`, 'PR Chain');
       }
     }
   }
 
-  // PR chain open handler
   app.onKey('pr-chain-open', fetchAndRenderPRChain);
 
-  // PR chain refresh handler - clear cache and re-fetch
   app.onKey('pr-chain-refresh', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
-
     clearPRCache(vm.name);
     app.renderPRChain('\n  {yellow-fg}Refreshing PR data...{/yellow-fg}', 'PR Chain');
     await fetchAndRenderPRChain();
   });
 
-  // PR chain sync handler - send rebase prompt to the selected VM's agent
+  // PR chain sync handler
   app.onKey('pr-chain-sync', async () => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -627,22 +547,20 @@ async function main() {
     app.setStatusMessage(`Syncing ${vm.displayLabel ?? vm.name}...`);
 
     try {
-      const [prs, currentBranch, defaultBranch] = await Promise.all([
-        fetchPRChain(client, vm.name),
-        getCurrentBranch(client, vm.name),
-        getDefaultBranch(client, vm.name),
+      const [prs, currentBr, defaultBr] = await Promise.all([
+        fetchPRChain(vm.worktreePath, vm.name),
+        getCurrentBranch(vm.worktreePath),
+        getDefaultBranch(vm.worktreePath),
       ]);
 
-      // Find the PR for this VM's current branch
-      const currentPR = prs.find(pr => pr.headRefName === currentBranch);
+      const currentPR = prs.find(pr => pr.headRefName === currentBr);
       if (!currentPR) {
-        app.setStatusMessage(`No PR found for branch "${currentBranch}"`);
+        app.setStatusMessage(`No PR found for branch "${currentBr}"`);
         setTimeout(() => app.resetStatus(), 3000);
         return;
       }
 
-      // Check if this PR is stale
-      const stalePRs = findStalePRs(prs, defaultBranch);
+      const stalePRs = findStalePRs(prs, defaultBr);
       const isStale = stalePRs.some(pr => pr.number === currentPR.number);
       if (!isStale) {
         app.setStatusMessage(`PR #${currentPR.number} is not stale — no sync needed`);
@@ -650,14 +568,13 @@ async function main() {
         return;
       }
 
-      // Send rebase prompt to the agent via tmux window
       state.activeVmIndex = state.sidebarSelectedIndex;
       vm.taskStartedAt = Date.now();
       app.render();
 
-      const rebasePrompt = `Your PR #${currentPR.number} (branch "${currentBranch}") targets "${currentPR.baseRefName}" which has been merged into ${defaultBranch}. Please: 1) git fetch origin, 2) retarget your PR to ${defaultBranch} with \`gh pr edit ${currentPR.number} --base ${defaultBranch}\`, 3) rebase your branch onto origin/${defaultBranch}, 4) resolve any conflicts, 5) force-push with \`git push --force-with-lease\`.`;
+      const rebasePrompt = `Your PR #${currentPR.number} (branch "${currentBr}") targets "${currentPR.baseRefName}" which has been merged into ${defaultBr}. Please: 1) git fetch origin, 2) retarget your PR to ${defaultBr} with \`gh pr edit ${currentPR.number} --base ${defaultBr}\`, 3) rebase your branch onto origin/${defaultBr}, 4) resolve any conflicts, 5) force-push with \`git push --force-with-lease\`.`;
       const escapedPrompt = rebasePrompt.replace(/'/g, "'\\''");
-      const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
       killWindow(vm.name);
       openVmInRightPane(vm.name, command);
     } catch (err: any) {
@@ -685,7 +602,6 @@ async function main() {
     }
   });
 
-  // Linear tasks refresh handler
   app.onKey('linear-refresh', async () => {
     clearLinearCache();
     app.renderLinear('\n  {yellow-fg}Refreshing Linear tasks...{/yellow-fg}', 'Linear Tasks');
@@ -701,10 +617,9 @@ async function main() {
     }
   });
 
-  // Linear re-render handler (when selection changes with j/k or space toggle)
   app.onKey('linear-rerender', async () => {
     try {
-      const issues = await fetchMyIssues(); // returns cached data
+      const issues = await fetchMyIssues();
       const width = (app.screen.width as number) - 4;
       const idx = app.getLinearSelectedIndex();
       const checkedIds = app.getLinearCheckedIds();
@@ -713,41 +628,35 @@ async function main() {
     } catch { /* ignore */ }
   });
 
-  // Linear claim handler - create VMs, set issues to In Progress, send as prompts in parallel
+  // Linear claim handler - create branches, set issues to In Progress, send prompts
   app.onKey('linear-claim', async (issues: LinearIssue[]) => {
     const count = issues.length;
     const label = count === 1 ? issues[0].identifier : `${count} tasks`;
     app.startSpinner(`Claiming ${label}...`);
 
     async function claimSingleIssue(issue: LinearIssue): Promise<{ ok: boolean; identifier: string }> {
-      // Set issue to In Progress in Linear
       try {
         await startIssue(issue.id);
-      } catch (err: any) {
+      } catch {
         return { ok: false, identifier: issue.identifier };
       }
 
-      // Create a new VM
       try {
-        app.updateSpinner(`${issue.identifier}: Creating VM...`);
-        const vm = await createVM(client);
-        vm.provisioningStatus = 'pending';
+        app.updateSpinner(`${issue.identifier}: Creating branch...`);
+        const branchName = issue.branchName || `${issue.identifier.toLowerCase().replace(/[^a-z0-9-]/g, '-')}`;
+        const vm = createBranch(repoRoot, branchName, state.settings ?? undefined);
         vm.displayLabel = issue.identifier;
         vm.customLabel = true;
         state.vms.push(vm);
         app.render();
 
-        // Provision VM
+        // Provision
         vm.provisioningStatus = 'provisioning';
         app.render();
         try {
-          await provisionVM(client, vm.name, state.settings ?? undefined, (msg) => {
+          await provisionBranch(vm.worktreePath, state.settings ?? undefined, (msg) => {
             app.updateSpinner(`${issue.identifier}: ${msg}`);
             appendOutput(vm.name, `${msg}\n`);
-            const selectedVm = state.vms[state.sidebarSelectedIndex];
-            if (selectedVm && selectedVm.name === vm.name) {
-              app.showPreview(getOutput(vm.name));
-            }
           });
           vm.provisioningStatus = 'done';
         } catch {
@@ -756,15 +665,13 @@ async function main() {
           return { ok: false, identifier: issue.identifier };
         }
 
-        // Send the task as a prompt via tmux window using the Linear branch name
+        // Send the task as a prompt - per spec, use docker sandbox run claude
         vm.taskStartedAt = Date.now();
-
-        const desc = issue.description ? `\n\nDescription:\n${issue.description}` : '';
-        const prompt = `You are working on Linear issue ${issue.identifier}: "${issue.title}"${desc}\n\nIMPORTANT: Use the git branch name "${issue.branchName}" for your work so that PRs automatically link to this Linear issue. Create this branch with: git checkout -b ${issue.branchName}\n\nPlease implement this task.`;
+        const prompt = `Do linear task ${issue.identifier}`;
         const escapedPrompt = prompt.replace(/'/g, "'\\''");
-        const spriteCmd = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
         killWindow(vm.name);
-        createWindow(vm.name, spriteCmd);
+        createWindow(vm.name, command);
 
         app.render();
         return { ok: true, identifier: issue.identifier };
@@ -777,7 +684,6 @@ async function main() {
     const succeeded = results.filter(r => r.ok);
     const failed = results.filter(r => !r.ok);
 
-    // Select the last created VM
     if (state.vms.length > 0) {
       state.sidebarSelectedIndex = state.vms.length - 1;
       state.activeVmIndex = state.vms.length - 1;
@@ -793,47 +699,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Mount VM filesystem handler
-  app.onKey('mount', async () => {
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    if (isMounted(vm.name)) {
-      app.setStatusMessage(`${vm.name} is already mounted at ${vm.mountPath}`);
-      setTimeout(() => app.resetStatus(), 3000);
-      return;
-    }
-    app.setStatusMessage(`Mounting ${vm.name}...`);
-    vm.pendingAction = 'mounting...';
-    vm.lastError = undefined;
-    app.render();
-    try {
-      const mountPath = await mountVM(client, vm.name, (msg) => {
-        app.setStatusMessage(`${vm.name}: ${msg}`);
-      });
-      vm.pendingAction = undefined;
-      vm.mountPath = mountPath;
-      app.setStatusMessage(`Mounted ${vm.name} at ${mountPath}`);
-
-      // Auto-open in VS Code if enabled (defaults to true)
-      if (state.settings?.openInVscode !== false) {
-        execFile('code', [mountPath], (err) => {
-          if (err) {
-            app.setStatusMessage(`Mounted ${vm.name} (VS Code open failed: ${err.message})`);
-            app.render();
-            setTimeout(() => app.resetStatus(), 3000);
-          }
-        });
-      }
-    } catch (err: any) {
-      vm.pendingAction = undefined;
-      vm.lastError = err.message || String(err);
-      app.setStatusMessage(`Mount failed: ${err.message}`);
-    }
-    app.render();
-    setTimeout(() => app.resetStatus(), 3000);
-  });
-
-  // Prompt submit handler - run claude -p on the VM via right pane
+  // Prompt submit handler - run claude -p in worktree
   app.onKey('prompt-submit', async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -850,21 +716,20 @@ async function main() {
     state.activeVmIndex = state.sidebarSelectedIndex;
     app.render();
 
-    // Build the sprite command to run claude with the prompt
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
-    const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+    const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
 
     killWindow(vm.name);
     openVmInRightPane(vm.name, command);
   });
 
-  // Broadcast prompt handler - send claude -p to all provisioned VMs
+  // Broadcast prompt handler
   app.onKey('broadcast-submit', async (prompt: string) => {
     await addToHistory(prompt);
 
     const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
     if (targets.length === 0) {
-      app.setStatusMessage('No provisioned VMs to broadcast to');
+      app.setStatusMessage('No provisioned branches to broadcast to');
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
@@ -875,7 +740,7 @@ async function main() {
 
     for (const vm of targets) {
       vm.taskStartedAt = Date.now();
-      const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
       if (vm.name === state.rightPaneVmName) {
         ensureRightPane();
         respawnRightPane(command);
@@ -890,7 +755,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Queue prompt handler - add prompt to VM's queue for sequential execution
+  // Queue prompt handler
   app.onKey('queue-submit', async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -909,7 +774,6 @@ async function main() {
     app.render();
     setTimeout(() => app.resetStatus(), 3000);
 
-    // If VM is idle (needs attention or no task running), send immediately
     if (vm.needsAttention || !vm.taskStartedAt) {
       const nextPrompt = dequeue(vm.name);
       if (!nextPrompt) return;
@@ -918,7 +782,7 @@ async function main() {
 
       vm.taskStartedAt = Date.now();
       const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
-      const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+      const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
 
       if (vm.name === state.rightPaneVmName) {
         ensureRightPane();
@@ -933,13 +797,13 @@ async function main() {
     }
   });
 
-  // Broadcast queue prompt handler - add prompt to all provisioned VMs' queues
+  // Broadcast queue prompt handler
   app.onKey('broadcast-queue-submit', async (prompt: string) => {
     await addToHistory(prompt);
 
     const targets = state.vms.filter(vm => vm.provisioningStatus === 'done');
     if (targets.length === 0) {
-      app.setStatusMessage('No provisioned VMs to broadcast queue to');
+      app.setStatusMessage('No provisioned branches to broadcast queue to');
       setTimeout(() => app.resetStatus(), 3000);
       return;
     }
@@ -950,11 +814,10 @@ async function main() {
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
 
     for (const vm of targets) {
-      // If VM is idle, send immediately
       if (vm.needsAttention || !vm.taskStartedAt) {
         if (vm.needsAttention) clearAttention(vm);
         vm.taskStartedAt = Date.now();
-        const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
         if (vm.name === state.rightPaneVmName) {
           ensureRightPane();
           respawnRightPane(command);
@@ -977,7 +840,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Ralph prompt handler - run iterative claude loop on the VM via tmux window
+  // Ralph prompt handler - run iterative claude loop
   app.onKey('ralph-submit', async (prompt: string, iterations: number) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -996,15 +859,13 @@ async function main() {
     state.activeVmIndex = state.sidebarSelectedIndex;
     app.render();
 
-    // Build the ralph loop as an inline bash script.
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
     const ralphScript = [
-      `rm -f /tmp/claude-done-signal`,
+      `cd '${vm.worktreePath.replace(/'/g, "'\\''")}'`,
       `for i in $(seq 1 ${iterations}); do`,
       `  echo "=== Ralph iteration $i/${iterations} ==="`,
       `  tmpfile=$(mktemp)`,
       `  claude --dangerously-skip-permissions -p '${escapedPrompt}' 2>&1 | tee "$tmpfile"`,
-      `  rm -f /tmp/claude-done-signal`,
       `  if grep -q '<promise>COMPLETE</promise>' "$tmpfile"; then`,
       `    echo "Ralph complete after $i iterations."`,
       `    rm -f "$tmpfile"`,
@@ -1012,40 +873,11 @@ async function main() {
       `  fi`,
       `  rm -f "$tmpfile"`,
       `done`,
-      `touch /tmp/claude-done-signal`,
     ].join('; ');
 
-    // Run the ralph script inside a sprite exec -tty session
-    const command = `sprite -s ${vm.name} exec -tty bash -c '${ralphScript.replace(/'/g, "'\\''")}'`;
+    const command = `bash -c '${ralphScript.replace(/'/g, "'\\''")}'`;
     killWindow(vm.name);
     openVmInRightPane(vm.name, command);
-  });
-
-  // Unmount VM filesystem handler
-  app.onKey('unmount', async () => {
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    if (!isMounted(vm.name)) {
-      app.setStatusMessage(`${vm.name} is not mounted`);
-      setTimeout(() => app.resetStatus(), 3000);
-      return;
-    }
-    app.setStatusMessage(`Unmounting ${vm.name}...`);
-    vm.pendingAction = 'unmounting...';
-    vm.lastError = undefined;
-    app.render();
-    try {
-      await unmountVM(vm.name);
-      vm.pendingAction = undefined;
-      vm.mountPath = undefined;
-      app.setStatusMessage(`Unmounted ${vm.name}`);
-    } catch (err: any) {
-      vm.pendingAction = undefined;
-      vm.lastError = err.message || String(err);
-      app.setStatusMessage(`Unmount failed: ${err.message}`);
-    }
-    app.render();
-    setTimeout(() => app.resetStatus(), 3000);
   });
 
   // Copy error to clipboard handler
@@ -1053,7 +885,7 @@ async function main() {
     const error = app.getSelectedVMError();
     if (!error) return;
 
-    // Try clipboard commands in order: pbcopy (macOS), xclip, xsel (Linux)
+    const { execFile } = await import('node:child_process');
     const commands: [string, string[]][] = process.platform === 'darwin'
       ? [['pbcopy', []]]
       : [['xclip', ['-selection', 'clipboard']], ['xsel', ['--clipboard', '--input']]];
@@ -1077,12 +909,10 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Quit handler - detach all sessions and kill tmux session
+  // Quit handler
   app.onKey('quit', async () => {
     stopMonitor();
     clearAllQueues();
-    detachAll();
-    await unmountAll();
     killSession();
   });
 
@@ -1090,8 +920,6 @@ async function main() {
   const signalHandler = async () => {
     stopMonitor();
     clearAllQueues();
-    detachAll();
-    await unmountAll();
     killSession();
     process.exit(0);
   };

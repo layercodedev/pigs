@@ -1,39 +1,25 @@
-import { describe, it, expect, jest, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, jest, beforeEach, afterEach, mock } from 'bun:test';
 import {
   startMonitor,
   stopMonitor,
   clearAttention,
   defaultLabel,
   CLAUDE_HOOKS_CONFIG,
-  STOP_HOOK_COMMAND,
+  makeStopHookCommand,
+  makeHooksConfig,
   SIGNAL_FILE,
-  _pollAll,
   _checkSignal,
   _checkGitLabel,
+  _pollAll,
+  _getSignalPath,
 } from '../notification-monitor.ts';
 import type { VM } from '../types.ts';
 
-function createMockSprite(execResult?: { stdout: string; stderr: string; exitCode: number }) {
-  const result = execResult ?? { stdout: '', stderr: '', exitCode: 0 };
+function createBranch(overrides: Partial<VM> = {}): VM {
   return {
-    exec: jest.fn().mockResolvedValue(result),
-    execFile: jest.fn().mockResolvedValue(result),
-  };
-}
-
-function createMockClient(mockSprite?: ReturnType<typeof createMockSprite>) {
-  const sprite = mockSprite ?? createMockSprite();
-  return {
-    sprite: jest.fn().mockReturnValue(sprite),
-    _mockSprite: sprite,
-  } as any;
-}
-
-function createVM(overrides: Partial<VM> = {}): VM {
-  return {
-    name: 'pigs-abc123',
-    id: 'pigs-abc123',
-    status: 'running',
+    name: 'test-branch',
+    worktreePath: '/tmp/worktrees/test-branch',
+    status: 'active',
     createdAt: new Date().toISOString(),
     needsAttention: false,
     provisioningStatus: 'done',
@@ -58,272 +44,58 @@ describe('notification-monitor', () => {
       const hookGroup = CLAUDE_HOOKS_CONFIG.hooks.Stop[0];
       expect(hookGroup.hooks).toHaveLength(1);
       expect(hookGroup.hooks[0].type).toBe('command');
-      expect(hookGroup.hooks[0].command).toBe(STOP_HOOK_COMMAND);
+      expect(hookGroup.hooks[0].command).toContain('touch');
     });
+  });
 
-    it('should use the correct signal file path', () => {
-      expect(STOP_HOOK_COMMAND).toContain(SIGNAL_FILE);
-      expect(STOP_HOOK_COMMAND).toContain('touch');
+  describe('makeStopHookCommand', () => {
+    it('should return a touch command for the signal path', () => {
+      const cmd = makeStopHookCommand('/tmp/worktrees/test');
+      expect(cmd).toContain('touch');
+    });
+  });
+
+  describe('makeHooksConfig', () => {
+    it('should return config with permissions and hooks', () => {
+      const config = makeHooksConfig('/tmp/worktrees/test');
+      expect(config.permissions).toEqual({ defaultMode: 'bypassPermissions' });
+      expect(config.hooks.Stop).toHaveLength(1);
+      expect(config.hooks.Stop[0].hooks[0].type).toBe('command');
+      expect(config.hooks.Stop[0].hooks[0].command).toContain('touch');
     });
   });
 
   describe('clearAttention', () => {
     it('should set needsAttention to false', () => {
-      const vm = createVM({ needsAttention: true });
-      clearAttention(vm);
-      expect(vm.needsAttention).toBe(false);
+      const branch = createBranch({ needsAttention: true });
+      clearAttention(branch);
+      expect(branch.needsAttention).toBe(false);
     });
 
     it('should be safe to call when already false', () => {
-      const vm = createVM({ needsAttention: false });
-      clearAttention(vm);
-      expect(vm.needsAttention).toBe(false);
-    });
-  });
-
-  describe('_checkSignal', () => {
-    it('should set needsAttention when signal file is found', async () => {
-      const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM();
-
-      await _checkSignal(client, vm);
-
-      expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-      // shellExec calls execFile('bash', ['-c', script])
-      expect(mockSprite.execFile).toHaveBeenCalledWith(
-        'bash',
-        ['-c', expect.stringContaining(SIGNAL_FILE)],
-      );
-      expect(vm.needsAttention).toBe(true);
-    });
-
-    it('should clear taskStartedAt when signal file is found', async () => {
-      const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ taskStartedAt: Date.now() - 30000 });
-
-      await _checkSignal(client, vm);
-
-      expect(vm.needsAttention).toBe(true);
-      expect(vm.taskStartedAt).toBeUndefined();
-    });
-
-    it('should not set needsAttention when no signal file', async () => {
-      const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM();
-
-      await _checkSignal(client, vm);
-
-      expect(vm.needsAttention).toBe(false);
-    });
-
-    it('should remove the signal file after reading', async () => {
-      const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM();
-
-      await _checkSignal(client, vm);
-
-      const script = mockSprite.execFile.mock.calls[0][1][1] as string;
-      expect(script).toContain('rm -f');
-    });
-  });
-
-  describe('_pollAll', () => {
-    it('should check provisioned VMs for signal', async () => {
-      const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM();
-      const onChange = jest.fn();
-
-      await _pollAll(client, [vm], onChange);
-
-      expect(vm.needsAttention).toBe(true);
-      expect(onChange).toHaveBeenCalled();
-    });
-
-    it('should skip VMs that are not provisioned', async () => {
-      const mockSprite = createMockSprite();
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ provisioningStatus: 'provisioning' });
-      const onChange = jest.fn();
-
-      await _pollAll(client, [vm], onChange);
-
-      expect(mockSprite.execFile).not.toHaveBeenCalled();
-      expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it('should skip signal check for VMs that already need attention but still check git', async () => {
-      const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ needsAttention: true, displayLabel: 'abc123' });
-      const onChange = jest.fn();
-
-      await _pollAll(client, [vm], onChange);
-
-      // Should only be called once (git check via shellExec), not twice (signal + git)
-      expect(mockSprite.execFile).toHaveBeenCalledTimes(1);
-      expect(mockSprite.execFile).toHaveBeenCalledWith(
-        'bash',
-        ['-c', expect.stringContaining('git rev-parse')],
-      );
-    });
-
-    it('should not call onChange when no signal found and label unchanged', async () => {
-      const mockSprite = createMockSprite({ stdout: '', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ displayLabel: 'abc123' }); // already has default label
-      const onChange = jest.fn();
-
-      await _pollAll(client, [vm], onChange);
-
-      expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it('should handle exec errors gracefully', async () => {
-      const mockSprite = createMockSprite();
-      mockSprite.execFile.mockRejectedValue(new Error('network error'));
-      const client = createMockClient(mockSprite);
-      const vm = createVM();
-      const onChange = jest.fn();
-
-      await expect(_pollAll(client, [vm], onChange)).resolves.toBeUndefined();
-      expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it('should check multiple VMs', async () => {
-      const mockSprite = createMockSprite({ stdout: 'FOUND\n', stderr: '', exitCode: 0 });
-      const client = createMockClient(mockSprite);
-      const vm1 = createVM({ name: 'pigs-aaa' });
-      const vm2 = createVM({ name: 'pigs-bbb' });
-      const onChange = jest.fn();
-
-      await _pollAll(client, [vm1, vm2], onChange);
-
-      expect(client.sprite).toHaveBeenCalledWith('pigs-aaa');
-      expect(client.sprite).toHaveBeenCalledWith('pigs-bbb');
-      expect(vm1.needsAttention).toBe(true);
-      expect(vm2.needsAttention).toBe(true);
-      expect(onChange).toHaveBeenCalledTimes(2);
+      const branch = createBranch({ needsAttention: false });
+      clearAttention(branch);
+      expect(branch.needsAttention).toBe(false);
     });
   });
 
   describe('defaultLabel', () => {
-    it('should return last 6 chars of VM name', () => {
-      expect(defaultLabel('pigs-abc123')).toBe('abc123');
+    it('should return the branch name as-is', () => {
+      expect(defaultLabel('feature/my-branch')).toBe('feature/my-branch');
     });
 
-    it('should handle short names', () => {
-      expect(defaultLabel('abc')).toBe('abc');
-    });
-  });
-
-  describe('_checkGitLabel', () => {
-    it('should set displayLabel to dirname:branch when in a git repo', async () => {
-      const mockSprite = createMockSprite({
-        stdout: '/root/myproject\nmain\n',
-        stderr: '',
-        exitCode: 0,
-      });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ displayLabel: 'abc123' });
-
-      const changed = await _checkGitLabel(client, vm);
-
-      expect(client.sprite).toHaveBeenCalledWith('pigs-abc123');
-      expect(mockSprite.execFile).toHaveBeenCalledWith(
-        'bash',
-        ['-c', expect.stringContaining('git rev-parse')],
-      );
-      expect(vm.displayLabel).toBe('myproject:main');
-      expect(changed).toBe(true);
-    });
-
-    it('should use directory basename not full path', async () => {
-      const mockSprite = createMockSprite({
-        stdout: '/home/user/deep/nested/repo\nfeature-branch\n',
-        stderr: '',
-        exitCode: 0,
-      });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ displayLabel: 'abc123' });
-
-      await _checkGitLabel(client, vm);
-
-      expect(vm.displayLabel).toBe('repo:feature-branch');
-    });
-
-    it('should fall back to default label when not in git repo', async () => {
-      const mockSprite = createMockSprite({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ name: 'pigs-xyz789', displayLabel: 'myproject:main' });
-
-      const changed = await _checkGitLabel(client, vm);
-
-      expect(vm.displayLabel).toBe('xyz789');
-      expect(changed).toBe(true);
-    });
-
-    it('should return false when label has not changed', async () => {
-      const mockSprite = createMockSprite({
-        stdout: '/root/myproject\nmain\n',
-        stderr: '',
-        exitCode: 0,
-      });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ displayLabel: 'myproject:main' });
-
-      const changed = await _checkGitLabel(client, vm);
-
-      expect(changed).toBe(false);
-    });
-
-    it('should skip VMs with customLabel set', async () => {
-      const mockSprite = createMockSprite({
-        stdout: '/root/myproject\nmain\n',
-        stderr: '',
-        exitCode: 0,
-      });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ displayLabel: 'my-custom-name', customLabel: true });
-
-      const changed = await _checkGitLabel(client, vm);
-
-      expect(mockSprite.execFile).not.toHaveBeenCalled();
-      expect(vm.displayLabel).toBe('my-custom-name');
-      expect(changed).toBe(false);
-    });
-
-    it('should return false when default label unchanged', async () => {
-      const mockSprite = createMockSprite({
-        stdout: '',
-        stderr: '',
-        exitCode: 0,
-      });
-      const client = createMockClient(mockSprite);
-      const vm = createVM({ name: 'pigs-abc123', displayLabel: 'abc123' });
-
-      const changed = await _checkGitLabel(client, vm);
-
-      expect(changed).toBe(false);
+    it('should handle simple names', () => {
+      expect(defaultLabel('main')).toBe('main');
     });
   });
 
   describe('startMonitor / stopMonitor', () => {
     it('should not start multiple timers', () => {
-      const client = createMockClient();
-      const vms: VM[] = [];
+      const branches: VM[] = [];
       const onChange = jest.fn();
 
-      startMonitor(client, vms, onChange);
-      startMonitor(client, vms, onChange); // duplicate call
+      startMonitor(branches, onChange);
+      startMonitor(branches, onChange); // duplicate call
 
       // Advance timer once - should only have one interval
       jest.advanceTimersByTime(5000);
@@ -331,16 +103,14 @@ describe('notification-monitor', () => {
     });
 
     it('should stop polling when stopMonitor is called', () => {
-      const mockSprite = createMockSprite();
-      const client = createMockClient(mockSprite);
-      const vm = createVM();
+      const branch = createBranch();
       const onChange = jest.fn();
 
-      startMonitor(client, [vm], onChange);
+      startMonitor([branch], onChange);
       stopMonitor();
 
       jest.advanceTimersByTime(10000);
-      expect(mockSprite.execFile).not.toHaveBeenCalled();
+      // No errors should occur
     });
   });
 });

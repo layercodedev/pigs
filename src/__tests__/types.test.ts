@@ -5,13 +5,13 @@ describe('types', () => {
   it('should create a valid VM object', () => {
     const vm: VM = {
       name: 'pigs-test',
-      id: '123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-test',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
     };
     expect(vm.name).toBe('pigs-test');
-    expect(vm.status).toBe('running');
+    expect(vm.status).toBe('active');
     expect(vm.needsAttention).toBe(false);
   });
 
@@ -26,6 +26,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.vms).toHaveLength(0);
     expect(state.activeVmIndex).toBe(-1);
@@ -46,6 +47,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.settings).not.toBeNull();
     expect(state.settings!.claudeMd).toBe('# My instructions');
@@ -54,8 +56,8 @@ describe('types', () => {
   it('should support provisioningStatus on VM', () => {
     const vm: VM = {
       name: 'pigs-prov',
-      id: '456',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-prov',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
       provisioningStatus: 'provisioning',
@@ -66,8 +68,8 @@ describe('types', () => {
   it('should allow provisioningStatus to be undefined', () => {
     const vm: VM = {
       name: 'pigs-noprov',
-      id: '789',
-      status: 'cold',
+      worktreePath: '/tmp/worktrees/pigs-noprov',
+      status: 'idle',
       createdAt: new Date().toISOString(),
       needsAttention: false,
     };
@@ -81,26 +83,26 @@ describe('types', () => {
     expect(settings.claudeMd).toBe('# Instructions');
   });
 
-  it('should support openInVscode in PigsSettings', () => {
+  it('should support copyFiles in PigsSettings', () => {
     const settings: PigsSettings = {
       claudeMd: '# Instructions',
-      openInVscode: true,
+      copyFiles: ['file1.txt', 'file2.txt'],
     };
-    expect(settings.openInVscode).toBe(true);
+    expect(settings.copyFiles).toEqual(['file1.txt', 'file2.txt']);
   });
 
-  it('should allow openInVscode to be undefined', () => {
+  it('should allow copyFiles to be undefined', () => {
     const settings: PigsSettings = {
       claudeMd: '# Instructions',
     };
-    expect(settings.openInVscode).toBeUndefined();
+    expect(settings.copyFiles).toBeUndefined();
   });
 
   it('should support displayLabel on VM', () => {
     const vm: VM = {
       name: 'pigs-abc123',
-      id: 'pigs-abc123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-abc123',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
       displayLabel: 'myproject:main',
@@ -111,8 +113,8 @@ describe('types', () => {
   it('should allow displayLabel to be undefined', () => {
     const vm: VM = {
       name: 'pigs-abc123',
-      id: 'pigs-abc123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-abc123',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
     };
@@ -130,6 +132,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('prompt');
   });
@@ -145,6 +148,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('broadcast');
   });
@@ -160,6 +164,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('help');
   });
@@ -175,6 +180,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('bulk-create');
   });
@@ -190,6 +196,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('confirm-delete-all');
   });
@@ -205,6 +212,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('confirm-reprovision-all');
   });
@@ -220,6 +228,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('rename');
   });
@@ -227,8 +236,8 @@ describe('types', () => {
   it('should support customLabel on VM', () => {
     const vm: VM = {
       name: 'pigs-abc123',
-      id: 'pigs-abc123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-abc123',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
       displayLabel: 'my-custom-label',
@@ -241,8 +250,8 @@ describe('types', () => {
   it('should allow customLabel to be undefined', () => {
     const vm: VM = {
       name: 'pigs-abc123',
-      id: 'pigs-abc123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-abc123',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
     };
@@ -253,8 +262,8 @@ describe('types', () => {
     const now = Date.now();
     const vm: VM = {
       name: 'pigs-abc123',
-      id: 'pigs-abc123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-abc123',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
       taskStartedAt: now,
@@ -265,8 +274,8 @@ describe('types', () => {
   it('should allow taskStartedAt to be undefined', () => {
     const vm: VM = {
       name: 'pigs-abc123',
-      id: 'pigs-abc123',
-      status: 'running',
+      worktreePath: '/tmp/worktrees/pigs-abc123',
+      status: 'active',
       createdAt: new Date().toISOString(),
       needsAttention: false,
     };
@@ -284,6 +293,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('search');
     expect(state.searchFilter).toBe('myproject');
@@ -300,6 +310,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('dashboard');
   });
@@ -317,6 +328,7 @@ describe('types', () => {
         sortMode,
         rightPaneVmName: null,
         sidebarHidden: false,
+        repoRoot: '/tmp/repo',
       };
       expect(state.sortMode).toBe(sortMode);
     }
@@ -333,6 +345,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('queue');
   });
@@ -348,6 +361,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('broadcast-queue');
   });
@@ -363,6 +377,7 @@ describe('types', () => {
       sortMode: 'default',
       rightPaneVmName: null,
       sidebarHidden: false,
+      repoRoot: '/tmp/repo',
     };
     expect(state.mode).toBe('queue-viewer');
   });

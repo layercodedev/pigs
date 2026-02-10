@@ -1,375 +1,173 @@
 /**
- * Integration tests — hit the real Sprites API with a live SPRITES_TOKEN.
+ * Integration tests — test against real local git worktrees.
  *
- * These tests create a real VM, provision it, run commands on it, and
- * tear it down. They verify the app actually works end-to-end against
- * the live infrastructure.
+ * These tests create a real worktree, provision it, run commands,
+ * and tear it down. They verify the app actually works end-to-end
+ * against the local git worktree infrastructure.
  *
  * Run with:
  *   npm run test:integration
  *
- * Requires SPRITES_TOKEN in the environment (loaded from ~/.profile).
+ * Requires a git repository to be available.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
-import type { SpritesClient } from '@fly/sprites';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execSync } from 'node:child_process';
 import type { VM } from '../types.ts';
 import { shellExec } from '../shell-exec.ts';
 
-// Module imports — these are the real functions the TUI calls
-import {
-  createSpritesClient,
-  listVMs,
-  createVM,
-  deleteVM,
-  spriteToVM,
-  generateVMName,
-} from '../sprites-client.ts';
-
-import { provisionVM, reprovisionVM, loadSettings } from '../provisioner.ts';
+import { provisionBranch, reprovisionBranch, loadSettings } from '../provisioner.ts';
 
 import {
-  attachConsole,
-  writeToConsole,
-  getSession,
-  destroyConsole,
-  resizeConsole,
-} from '../console-session.ts';
-
-import {
-  _checkSignal,
-  _checkGitLabel,
+  clearAttention,
   defaultLabel,
-  SIGNAL_FILE,
+  makeStopHookCommand,
+  makeHooksConfig,
 } from '../notification-monitor.ts';
-
-import {
-  installSSHKey,
-  ensureSSHKey,
-  createProxyServer,
-} from '../mount-session.ts';
 
 // ---------------------------------------------------------------------------
 // Shared state across all tests
 // ---------------------------------------------------------------------------
-let client: SpritesClient;
-let testVM: VM;
-const TEST_VM_PREFIX = 'pigs-itest-';
-
-// ---------------------------------------------------------------------------
-// Cleanup helper (shared by afterAll + signal handlers)
-// ---------------------------------------------------------------------------
-async function cleanupAllTestVMs() {
-  try {
-    const allVMs = await client.listAllSprites(TEST_VM_PREFIX);
-    for (const sprite of allVMs) {
-      try {
-        destroyConsole(sprite.name);
-      } catch (e) {
-        console.warn(`[itest] failed to destroy console for ${sprite.name}:`, e);
-      }
-      try {
-        await client.deleteSprite(sprite.name);
-        console.warn(`[itest] deleted VM ${sprite.name}`);
-      } catch (e) {
-        console.warn(`[itest] failed to delete VM ${sprite.name}:`, e);
-      }
-    }
-  } catch (e) {
-    console.warn('[itest] cleanup failed to list VMs:', e);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Process signal handlers — ensure VMs are cleaned up on Ctrl+C / kill
-// ---------------------------------------------------------------------------
-function handleSignal(signal: string) {
-  console.warn(`[itest] received ${signal}, cleaning up VMs...`);
-  cleanupAllTestVMs().finally(() => process.exit(1));
-}
-process.on('SIGINT', () => handleSignal('SIGINT'));
-process.on('SIGTERM', () => handleSignal('SIGTERM'));
+let repoDir: string;
+let worktreePath: string;
+let testBranch: VM;
 
 // ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 beforeAll(async () => {
-  // Ensure token is available
-  if (!process.env.SPRITES_TOKEN) {
-    throw new Error(
-      'SPRITES_TOKEN must be set to run integration tests. Source ~/.profile first.',
-    );
-  }
-  client = createSpritesClient();
+  // Create a temporary directory for the test repo
+  repoDir = await mkdtemp(join(tmpdir(), 'pigs-itest-'));
 
-  // Delete any stale pigs-itest-* VMs left over from previous failed runs
-  await cleanupAllTestVMs();
-}, 60_000);
+  // Initialize a git repo
+  execSync('git init', { cwd: repoDir, stdio: 'pipe' });
+  execSync('git commit --allow-empty -m "initial commit"', { cwd: repoDir, stdio: 'pipe' });
+
+  // Create a worktree
+  const branchName = `pigs-itest-${Date.now().toString(36)}`;
+  worktreePath = join(repoDir, '.worktrees', branchName);
+  execSync(`git worktree add -b ${branchName} "${worktreePath}"`, { cwd: repoDir, stdio: 'pipe' });
+
+  testBranch = {
+    name: branchName,
+    worktreePath,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    needsAttention: false,
+  };
+}, 30_000);
 
 afterAll(async () => {
-  // Best-effort cleanup: delete our test VM and any leaked itest VMs
-  await cleanupAllTestVMs();
-}, 60_000);
+  // Clean up
+  try {
+    execSync(`git worktree remove "${worktreePath}" --force`, { cwd: repoDir, stdio: 'pipe' });
+  } catch {
+    // Best-effort cleanup
+  }
+  try {
+    await rm(repoDir, { recursive: true, force: true });
+  } catch {
+    // Best-effort cleanup
+  }
+}, 30_000);
 
 // ---------------------------------------------------------------------------
-// 1. Client creation
+// 1. Shell execution
 // ---------------------------------------------------------------------------
-describe('SpritesClient (live)', () => {
-  it('creates a client with the real token', () => {
-    expect(client).toBeDefined();
-    expect(client.token).toBe(process.env.SPRITES_TOKEN!);
-    expect(client.baseURL).toMatch(/^https?:\/\//);
+describe('shellExec (live)', () => {
+  it('can execute a simple command in the worktree', () => {
+    const { stdout } = shellExec(worktreePath, 'echo hello');
+    expect(stdout.trim()).toBe('hello');
+  });
+
+  it('can execute shell commands with pipes', () => {
+    const { stdout } = shellExec(worktreePath, 'echo hello | tr a-z A-Z');
+    expect(stdout.trim()).toBe('HELLO');
+  });
+
+  it('can execute multi-line shell scripts', () => {
+    const script = 'set -e\nA=hello\nB=world\necho "$A $B"';
+    const { stdout } = shellExec(worktreePath, script);
+    expect(stdout.trim()).toBe('hello world');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 2. VM lifecycle: create → list → exec → delete
-// ---------------------------------------------------------------------------
-describe('VM lifecycle (live)', () => {
-  it('creates a VM', async () => {
-    const name = `${TEST_VM_PREFIX}${Date.now().toString(36)}`;
-    testVM = await createVM(client, name);
-
-    expect(testVM).toBeDefined();
-    expect(testVM.name).toBe(name);
-    expect(testVM.id).toBeTruthy();
-    expect(['cold', 'running', 'stopped']).toContain(testVM.status);
-    expect(testVM.createdAt).toBeTruthy();
-    expect(testVM.needsAttention).toBe(false);
-  }, 30_000);
-
-  it('lists VMs and finds the test VM', async () => {
-    const vms = await listVMs(client);
-    const found = vms.find((vm) => vm.name === testVM.name);
-    expect(found).toBeDefined();
-    expect(found!.name).toBe(testVM.name);
-  }, 30_000);
-
-  it('can execute a simple command on the VM', async () => {
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await sprite.exec('echo hello');
-    expect(String(stdout).trim()).toBe('hello');
-  }, 30_000);
-
-  it('can execute shell commands via shellExec (pipes, redirects)', async () => {
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await shellExec(sprite, 'echo hello | tr a-z A-Z');
-    expect(String(stdout).trim()).toBe('HELLO');
-  }, 30_000);
-
-  it('can execute multi-line shell scripts via shellExec', async () => {
-    const sprite = client.sprite(testVM.name);
-    const script = 'set -e\nA=hello\nB=world\necho "$A $B"';
-    const { stdout } = await shellExec(sprite, script);
-    expect(String(stdout).trim()).toBe('hello world');
-  }, 30_000);
-});
-
-// ---------------------------------------------------------------------------
-// 3. Provisioning (installs Claude Code + SSH + config files)
+// 2. Provisioning (writes Claude Code config files)
 // ---------------------------------------------------------------------------
 describe('Provisioning (live)', () => {
-  it('provisions the VM (installs Claude Code + SSH)', async () => {
+  it('provisions the worktree (writes CLAUDE.md + hooks)', async () => {
     const logs: string[] = [];
-    await provisionVM(client, testVM.name, undefined, (msg) => logs.push(msg));
-    testVM.provisioningStatus = 'done';
+    await provisionBranch(worktreePath, undefined, (msg) => logs.push(msg));
+    testBranch.provisioningStatus = 'done';
 
-    // Verify we got log output from each provisioning step
+    // Verify we got log output from provisioning
     expect(logs.length).toBeGreaterThan(0);
-    expect(logs.some((l) => l.includes('Claude Code'))).toBe(true);
     expect(logs.some((l) => l.includes('CLAUDE.md'))).toBe(true);
-    expect(logs.some((l) => l.includes('hook'))).toBe(true);
-  }, 120_000);
-
-  it('can verify Claude Code is installed', async () => {
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await sprite.exec('which claude');
-    expect(String(stdout).trim()).toMatch(/claude/);
   }, 30_000);
 
-  it('can verify SSH server is running', async () => {
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await shellExec(sprite, 'pgrep -x sshd || echo "not running"');
-    const output = String(stdout).trim();
-    expect(output).not.toBe('not running');
-  }, 30_000);
+  it('can verify CLAUDE.md was written', () => {
+    const { stdout } = shellExec(worktreePath, 'cat CLAUDE.md');
+    expect(stdout.trim()).toContain('Agent Instructions');
+  });
 
-  it('can verify CLAUDE.md was written', async () => {
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await shellExec(sprite, 'cat /root/CLAUDE.md');
-    const content = String(stdout).trim();
-    expect(content).toContain('Agent Instructions');
-  }, 30_000);
-
-  it('can verify notification hook is installed', async () => {
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await shellExec(sprite, 'cat /root/.claude/settings.json');
-    const settings = JSON.parse(String(stdout).trim());
+  it('can verify notification hook is installed', () => {
+    const { stdout } = shellExec(worktreePath, 'cat .claude/settings.json');
+    const settings = JSON.parse(stdout.trim());
     expect(settings.hooks).toBeDefined();
     expect(settings.hooks.Stop).toBeDefined();
-  }, 30_000);
-});
-
-// ---------------------------------------------------------------------------
-// 4. Console sessions (TTY spawn)
-// ---------------------------------------------------------------------------
-describe('Console sessions (live)', () => {
-  it('attaches a console session to the VM', async () => {
-    const session = await attachConsole(client, testVM.name, 80, 24);
-    expect(session).toBeDefined();
-    expect(session.vmName).toBe(testVM.name);
-    expect(session.started).toBe(true);
-    expect(session.command).toBeDefined();
-  }, 30_000);
-
-  it('can write to console and receive output', async () => {
-    const session = getSession(testVM.name);
-    expect(session).toBeDefined();
-
-    // Collect stdout
-    const output: string[] = [];
-    const marker = `ITEST_${Date.now()}`;
-    session!.command.stdout.on('data', (chunk: Buffer) => {
-      output.push(chunk.toString());
-    });
-
-    // Write a command with a unique marker
-    writeToConsole(testVM.name, `echo "${marker}"\n`);
-
-    // Wait for output containing our marker
-    await new Promise<void>((resolve) => {
-      const interval = setInterval(() => {
-        if (output.some((line) => line.includes(marker))) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 200);
-      setTimeout(() => {
-        clearInterval(interval);
-        resolve();
-      }, 10_000);
-    });
-
-    const fullOutput = output.join('');
-    expect(fullOutput).toContain(marker);
-  }, 15_000);
-
-  it('can resize the console without error', () => {
-    resizeConsole(testVM.name, 120, 40);
-  });
-
-  it('destroys the console session', () => {
-    destroyConsole(testVM.name);
-    const session = getSession(testVM.name);
-    expect(session).toBeUndefined();
+    expect(settings.permissions).toEqual({ defaultMode: 'bypassPermissions' });
   });
 });
 
 // ---------------------------------------------------------------------------
-// 5. Notification monitor (signal file detection)
+// 3. Notification monitor helpers
 // ---------------------------------------------------------------------------
 describe('Notification monitor (live)', () => {
-  it('detects absence of signal file (no attention needed)', async () => {
-    const sprite = client.sprite(testVM.name);
-    await shellExec(sprite, `rm -f ${SIGNAL_FILE}`);
+  it('clearAttention sets needsAttention to false', () => {
+    const branch: VM = { ...testBranch, needsAttention: true };
+    clearAttention(branch);
+    expect(branch.needsAttention).toBe(false);
+  });
 
-    const vm: VM = { ...testVM, needsAttention: false };
-    await _checkSignal(client, vm);
-    expect(vm.needsAttention).toBe(false);
-  }, 30_000);
+  it('defaultLabel returns the branch name', () => {
+    expect(defaultLabel(testBranch.name)).toBe(testBranch.name);
+  });
 
-  it('detects presence of signal file and consumes it', async () => {
-    const sprite = client.sprite(testVM.name);
-    await sprite.exec(`touch ${SIGNAL_FILE}`);
+  it('makeStopHookCommand returns a touch command', () => {
+    const cmd = makeStopHookCommand(worktreePath);
+    expect(cmd).toContain('touch');
+  });
 
-    const vm: VM = { ...testVM, needsAttention: false };
-    await _checkSignal(client, vm);
-    expect(vm.needsAttention).toBe(true);
-
-    // Signal should be consumed (removed)
-    const { stdout } = await shellExec(sprite, `test -f ${SIGNAL_FILE} && echo EXISTS || echo GONE`);
-    expect(String(stdout).trim()).toBe('GONE');
-  }, 30_000);
-
-  it('detects git repo info via checkGitLabel', async () => {
-    // Create a dummy git repo in user's home (where checkGitLabel's cd /root may not work,
-    // but we test the function doesn't throw)
-    const sprite = client.sprite(testVM.name);
-    await shellExec(sprite, 'cd ~ && git init testrepo && cd testrepo && git checkout -b test-branch');
-
-    const vm: VM = { ...testVM, needsAttention: false, customLabel: false };
-    const changed = await _checkGitLabel(client, vm);
-    expect(typeof changed).toBe('boolean');
-    expect(vm.displayLabel).toBeDefined();
-
-    // Cleanup
-    await shellExec(sprite, 'rm -rf ~/testrepo');
-  }, 30_000);
-
-  it('falls back to defaultLabel when no git repo exists', async () => {
-    const vm: VM = { ...testVM, needsAttention: false, customLabel: false, displayLabel: undefined };
-    await _checkGitLabel(client, vm);
-    // With no git repo at /root, should fall back to last 6 chars of name
-    expect(vm.displayLabel).toBe(defaultLabel(testVM.name));
-  }, 30_000);
-
-  it('defaultLabel returns last 6 chars', () => {
-    expect(defaultLabel('pigs-abc123')).toBe('abc123');
-    expect(defaultLabel('pigs-xy')).toBe('igs-xy');
+  it('makeHooksConfig returns valid config', () => {
+    const config = makeHooksConfig(worktreePath);
+    expect(config.permissions.defaultMode).toBe('bypassPermissions');
+    expect(config.hooks.Stop).toHaveLength(1);
+    expect(config.hooks.Stop[0].hooks[0].type).toBe('command');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 6. Re-provisioning (config push without reinstall)
+// 4. Re-provisioning (config push without reinstall)
 // ---------------------------------------------------------------------------
 describe('Reprovision (live)', () => {
-  it('re-provisions the VM (updates CLAUDE.md + hooks)', async () => {
+  it('re-provisions the worktree (updates CLAUDE.md + hooks)', async () => {
     const logs: string[] = [];
-    await reprovisionVM(client, testVM.name, (msg) => logs.push(msg));
+    await reprovisionBranch(worktreePath, (msg) => logs.push(msg));
 
     expect(logs.length).toBeGreaterThan(0);
     expect(logs.some((l) => l.includes('CLAUDE.md'))).toBe(true);
-    expect(logs.some((l) => l.includes('hook'))).toBe(true);
 
     // Verify the CLAUDE.md was refreshed
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await shellExec(sprite, 'cat /root/CLAUDE.md');
-    expect(String(stdout).trim()).toContain('Agent Instructions');
-  }, 60_000);
-});
-
-// ---------------------------------------------------------------------------
-// 7. SSH key + proxy server (mount prerequisites)
-// ---------------------------------------------------------------------------
-describe('Mount prerequisites (live)', () => {
-  it('ensures SSH key pair exists', async () => {
-    const pubkey = await ensureSSHKey();
-    expect(pubkey).toBeTruthy();
-    expect(pubkey).toContain('ssh-ed25519');
-  }, 10_000);
-
-  it('installs SSH public key on the VM', async () => {
-    const pubkey = await ensureSSHKey();
-    await installSSHKey(client, testVM.name, pubkey);
-
-    // Verify key was installed
-    const sprite = client.sprite(testVM.name);
-    const { stdout } = await shellExec(sprite, 'cat /root/.ssh/authorized_keys');
-    expect(String(stdout)).toContain('ssh-ed25519');
-  }, 30_000);
-
-  it('creates a proxy server for WebSocket SSH tunneling', async () => {
-    const { server, port } = await createProxyServer(client, testVM.name);
-    expect(server).toBeDefined();
-    expect(port).toBeGreaterThan(0);
-    expect(port).toBeLessThan(65536);
-
-    // Clean up the server
-    server.close();
+    const { stdout } = shellExec(worktreePath, 'cat CLAUDE.md');
+    expect(stdout.trim()).toContain('Agent Instructions');
   }, 30_000);
 });
 
 // ---------------------------------------------------------------------------
-// 8. Settings (local file operations)
+// 5. Settings (local file operations)
 // ---------------------------------------------------------------------------
 describe('Settings (live)', () => {
   it('loads settings from disk (or creates defaults)', async () => {
@@ -378,47 +176,4 @@ describe('Settings (live)', () => {
     expect(typeof settings.claudeMd).toBe('string');
     expect(settings.claudeMd.length).toBeGreaterThan(0);
   });
-});
-
-// ---------------------------------------------------------------------------
-// 9. Helper functions (no API, but part of the live code path)
-// ---------------------------------------------------------------------------
-describe('Helpers', () => {
-  it('generateVMName produces valid names', () => {
-    for (let i = 0; i < 10; i++) {
-      const name = generateVMName();
-      expect(name).toMatch(/^pigs-[a-z0-9]{6}$/);
-    }
-  });
-
-  it('spriteToVM maps sprite data correctly', () => {
-    const sprite = {
-      name: 'pigs-test99',
-      id: 'uuid-test',
-      status: 'running',
-      createdAt: new Date('2026-01-01T00:00:00Z'),
-      client: {} as any,
-    } as any;
-
-    const vm = spriteToVM(sprite);
-    expect(vm.name).toBe('pigs-test99');
-    expect(vm.id).toBe('uuid-test');
-    expect(vm.status).toBe('running');
-    expect(vm.needsAttention).toBe(false);
-    expect(vm.displayLabel).toBe('test99');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 10. Cleanup — delete the test VM (runs last)
-// ---------------------------------------------------------------------------
-describe('Cleanup', () => {
-  it('deletes the test VM', async () => {
-    await deleteVM(client, testVM.name);
-
-    // Verify it's gone (or at least not listed)
-    const vms = await listVMs(client);
-    const found = vms.find((vm) => vm.name === testVM.name);
-    expect(found).toBeUndefined();
-  }, 30_000);
 });

@@ -1,7 +1,7 @@
 {
   "name": "pigs",
-  "version": "0.1.0",
-  "description": "TUI for managing Claude Code agent VMs on sprites.dev",
+  "version": "0.2.0",
+  "description": "TUI for managing parallel Claude Code agents in git worktrees",
   "type": "module",
   "main": "src/index.ts",
   "bin": {
@@ -11,13 +11,11 @@
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
     "typecheck": "bun x tsc --noEmit",
-    "test": "bun test",
+    "test": "bash -c 'bun test $(ls src/__tests__/*.test.ts | grep -v integration)'",
     "test:integration": "bun test src/__tests__/integration.test.ts --timeout 120000"
   },
   "dependencies": {
-    "@fly/sprites": "^0.0.1",
-    "blessed": "^0.1.81",
-    "term.js": "^0.0.7"
+    "blessed": "^0.1.81"
   },
   "license": "MIT",
   "devDependencies": {

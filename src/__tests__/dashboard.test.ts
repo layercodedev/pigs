@@ -5,8 +5,8 @@ import type { VM } from '../types.ts';
 function makeVM(overrides: Partial<VM> = {}): VM {
   return {
     name: 'pigs-abc123',
-    id: 'pigs-abc123',
-    status: 'running',
+    worktreePath: '/tmp/worktrees/pigs-abc123',
+    status: 'active',
     createdAt: new Date().toISOString(),
     needsAttention: false,
     provisioningStatus: 'done',
@@ -15,25 +15,23 @@ function makeVM(overrides: Partial<VM> = {}): VM {
 }
 
 describe('buildDashboardCell', () => {
-  it('should return 3 lines for a basic running VM', () => {
+  it('should return 3 lines for a basic active VM', () => {
     const vm = makeVM({ displayLabel: 'myapp:main' });
     const lines = buildDashboardCell(vm, '', 40);
     expect(lines).toHaveLength(3);
     expect(lines[0]).toBe('myapp:main');
   });
 
-  it('should show status icon for running VM', () => {
+  it('should show status for active VM', () => {
     const vm = makeVM();
     const lines = buildDashboardCell(vm, '', 40);
-    expect(lines[1]).toContain('running');
-    expect(lines[1]).toContain('*');
+    expect(lines[1]).toContain('active');
   });
 
-  it('should show status icon for stopped VM', () => {
-    const vm = makeVM({ status: 'stopped' });
+  it('should show status for idle VM', () => {
+    const vm = makeVM({ status: 'idle' });
     const lines = buildDashboardCell(vm, '', 40);
-    expect(lines[1]).toContain('stopped');
-    expect(lines[1]).toContain('-');
+    expect(lines[1]).toContain('idle');
   });
 
   it('should show attention indicator', () => {
@@ -58,12 +56,6 @@ describe('buildDashboardCell', () => {
     const vm = makeVM({ provisioningStatus: 'pending' });
     const lines = buildDashboardCell(vm, '', 40);
     expect(lines[1]).toContain('[wait]');
-  });
-
-  it('should show mount indicator', () => {
-    const vm = makeVM({ mountPath: '/home/user/.pigs/mounts/test' });
-    const lines = buildDashboardCell(vm, '', 40);
-    expect(lines[1]).toContain('[mnt]');
   });
 
   it('should show last output line', () => {

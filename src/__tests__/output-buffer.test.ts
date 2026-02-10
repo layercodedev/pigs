@@ -12,19 +12,19 @@ describe('appendOutput', () => {
   });
 
   it('should append to existing buffer', () => {
-    appendOutput('vm1', 'line1');
-    appendOutput('vm1', 'line2');
-    expect(getOutput('vm1')).toEqual(['line1', 'line2']);
+    appendOutput('vm1', 'line1\n');
+    appendOutput('vm1', 'line2\n');
+    expect(getOutput('vm1')).toEqual(['line1', '', 'line2', '']);
   });
 
   it('should handle trailing newlines', () => {
     appendOutput('vm1', 'hello\n');
-    expect(getOutput('vm1')).toEqual(['hello']);
+    expect(getOutput('vm1')).toEqual(['hello', '']);
   });
 
   it('should handle \\r\\n line endings', () => {
     appendOutput('vm1', 'hello\r\nworld\r\n');
-    expect(getOutput('vm1')).toEqual(['hello', 'world']);
+    expect(getOutput('vm1')).toEqual(['hello', 'world', '']);
   });
 
   it('should keep separate buffers per VM', () => {

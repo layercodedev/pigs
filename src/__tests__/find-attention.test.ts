@@ -5,8 +5,8 @@ import type { VM } from '../types.ts';
 function makeVM(overrides: Partial<VM> = {}): VM {
   return {
     name: 'pigs-test',
-    id: 'test-id',
-    status: 'running',
+    worktreePath: '/tmp/worktrees/pigs-test',
+    status: 'active',
     createdAt: new Date().toISOString(),
     needsAttention: false,
     ...overrides,

@@ -1,5 +1,4 @@
-import type { SpritesClient } from '@fly/sprites';
-import { shellExec } from './shell-exec.ts';
+import { execSync } from 'node:child_process';
 
 export interface PRInfo {
   number: number;
@@ -25,49 +24,48 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 30_000;
 
-export function clearPRCache(vmName?: string): void {
-  if (vmName) {
-    cache.delete(vmName);
+export function clearPRCache(branchName?: string): void {
+  if (branchName) {
+    cache.delete(branchName);
   } else {
     cache.clear();
   }
 }
 
-export async function fetchPRChain(client: SpritesClient, vmName: string): Promise<PRInfo[]> {
-  const cached = cache.get(vmName);
+export async function fetchPRChain(worktreePath: string, branchName: string): Promise<PRInfo[]> {
+  const cached = cache.get(branchName);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.data;
   }
 
-  const sprite = client.sprite(vmName);
-  const { stdout } = await shellExec(sprite,
-    'cd /root && gh pr list --state all --json number,title,headRefName,baseRefName,state,isDraft,url --limit 100 2>&1',
-  );
-  const raw = String(stdout).trim();
+  const raw = execSync(
+    'gh pr list --state all --json number,title,headRefName,baseRefName,state,isDraft,url --limit 100 2>&1',
+    { cwd: worktreePath, encoding: 'utf-8', stdio: 'pipe' },
+  ).trim();
 
   if (!raw.startsWith('[')) {
     throw new Error(raw || 'No output from gh pr list');
   }
 
   const prs: PRInfo[] = JSON.parse(raw);
-  cache.set(vmName, { data: prs, fetchedAt: Date.now() });
+  cache.set(branchName, { data: prs, fetchedAt: Date.now() });
   return prs;
 }
 
-export async function getCurrentBranch(client: SpritesClient, vmName: string): Promise<string> {
-  const sprite = client.sprite(vmName);
-  const { stdout } = await shellExec(sprite,
-    'cd /root && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""',
-  );
-  return String(stdout).trim();
+export async function getCurrentBranch(worktreePath: string): Promise<string> {
+  return execSync('git rev-parse --abbrev-ref HEAD 2>/dev/null || echo ""', {
+    cwd: worktreePath,
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  }).trim();
 }
 
-export async function getDefaultBranch(client: SpritesClient, vmName: string): Promise<string> {
-  const sprite = client.sprite(vmName);
-  const { stdout } = await shellExec(sprite,
-    'cd /root && git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s@^refs/remotes/origin/@@" || echo "main"',
-  );
-  return String(stdout).trim() || 'main';
+export async function getDefaultBranch(worktreePath: string): Promise<string> {
+  const result = execSync(
+    'git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed "s@^refs/remotes/origin/@@" || echo "main"',
+    { cwd: worktreePath, encoding: 'utf-8', stdio: 'pipe' },
+  ).trim();
+  return result || 'main';
 }
 
 export function buildPRTree(prs: PRInfo[], rootBranch: string): PRTreeNode {
@@ -112,7 +110,6 @@ function statusLabel(state: string, isDraft: boolean): string {
 export function renderPRTree(tree: PRTreeNode, currentBranch: string, width: number): string[] {
   const lines: string[] = [];
 
-  // Build set of branch names that have a MERGED PR (for stale detection)
   const mergedBranches = new Set<string>();
   function collectMerged(node: PRTreeNode) {
     if (node.pr?.state === 'MERGED') {
@@ -133,7 +130,6 @@ export function renderPRTree(tree: PRTreeNode, currentBranch: string, width: num
       const color = statusColor(pr.state, pr.isDraft);
       const label = statusLabel(pr.state, pr.isDraft);
       const current = node.branch === currentBranch ? '  {bold}← current{/bold}' : '';
-      // Stale: PR's base branch has a merged PR (parent was merged)
       const stale = pr.state !== 'MERGED' && pr.state !== 'CLOSED' && mergedBranches.has(pr.baseRefName)
         ? '  {red-fg}⚠ STALE{/red-fg}' : '';
       const prLine = `  ${prefix}${connector} {${color}-fg}#${pr.number}{/${color}-fg} ${pr.headRefName} {${color}-fg}${label}{/${color}-fg}${stale}${current}`;
@@ -166,8 +162,7 @@ export function renderPRTree(tree: PRTreeNode, currentBranch: string, width: num
 }
 
 /**
- * Find PRs that are stale — their base branch has a merged PR,
- * meaning the parent was merged and the child needs rebasing/retargeting.
+ * Find PRs that are stale — their base branch has a merged PR.
  */
 export function findStalePRs(prs: PRInfo[], defaultBranch: string): PRInfo[] {
   const mergedHeadBranches = new Set<string>();

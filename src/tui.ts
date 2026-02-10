@@ -86,8 +86,8 @@ export function sortVMs(vms: VM[], mode: SortMode): VM[] {
       });
       break;
     case 'status': {
-      const statusOrder: Record<string, number> = { running: 0, stopped: 1, cold: 2 };
-      sorted.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+      const statusOrder: Record<string, number> = { active: 0, idle: 1 };
+      sorted.sort((a, b) => (statusOrder[a.status] ?? 2) - (statusOrder[b.status] ?? 2));
       break;
     }
     case 'attention':
@@ -135,18 +135,17 @@ export function buildDashboardCell(vm: VM, lastLine: string, width: number): str
   const truncLabel = label.length > width - 2 ? label.slice(0, width - 5) + '...' : label;
 
   // Status line: icon + status + provisioning + attention + elapsed
-  const statusIcon = vm.status === 'running' ? '{green-fg}*{/green-fg}' : '{gray-fg}-{/gray-fg}';
+  const statusIcon = vm.status === 'active' ? '{green-fg}*{/green-fg}' : '{gray-fg}-{/gray-fg}';
   const attention = vm.needsAttention ? ' {red-fg}{bold}!{/bold}{/red-fg}' : '';
   const provLabel = vm.provisioningStatus === 'provisioning' ? ' {yellow-fg}[setup]{/yellow-fg}'
     : vm.provisioningStatus === 'failed' ? ' {red-fg}[fail]{/red-fg}'
     : vm.provisioningStatus === 'pending' ? ' {gray-fg}[wait]{/gray-fg}'
     : '';
-  const mount = vm.mountPath ? ' {cyan-fg}[mnt]{/cyan-fg}' : '';
   const elapsed = vm.taskStartedAt ? ` {cyan-fg}${formatElapsed(vm.taskStartedAt, Date.now())}{/cyan-fg}` : '';
   const qCount = queueSize(vm.name);
   const queue = qCount > 0 ? ` {magenta-fg}[q:${qCount}]{/magenta-fg}` : '';
 
-  const statusLine = `${statusIcon} ${vm.status}${provLabel}${mount}${queue}${elapsed}${attention}`;
+  const statusLine = `${statusIcon} ${vm.status}${provLabel}${queue}${elapsed}${attention}`;
 
   // Last output line - strip ANSI escapes and blessed tags, truncate to fit width
   const cleanLast = stripAnsi(lastLine).replace(/\{[^}]*\}/g, '').trim();
@@ -165,7 +164,7 @@ export function createApp() {
 
   const screen = blessed.screen({
     smartCSR: true,
-    title: 'pigs - Claude Agent VM Manager',
+    title: 'pigs - Claude Agent Branch Manager',
     fullUnicode: true,
   });
 
@@ -182,12 +181,13 @@ export function createApp() {
     sortMode: 'default',
     rightPaneVmName: null,
     sidebarHidden: false,
+    repoRoot: '',
   };
 
-  // Sidebar: list of VMs on the left (fills entire left pane in tmux split)
+  // Sidebar: list of branches on the left (fills entire left pane in tmux split)
   const sidebar = blessed.box({
     parent: screen,
-    label: ' VMs ',
+    label: ' Branches ',
     left: 0,
     top: 0,
     width: '100%',
@@ -221,7 +221,7 @@ export function createApp() {
 
   const noVmMessage = blessed.text({
     parent: mainView,
-    content: 'No active VM. Press {bold}c{/bold} to create a new agent VM.',
+    content: 'No active branch. Press {bold}c{/bold} to create a new branch.',
     tags: true,
     top: 'center',
     left: 'center',
@@ -272,7 +272,7 @@ export function createApp() {
     content: '',
   });
 
-  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  a:attn  m:mnt  g:prs  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  a:attn  g:prs  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
 
   // Status bar at the bottom
   const statusBar = blessed.box({
@@ -298,7 +298,7 @@ export function createApp() {
       border: { fg: 'red' },
       bg: 'black',
     },
-    label: ' Confirm Delete ',
+    label: ' Confirm Delete Branch ',
     content: '',
     tags: true,
   });
@@ -392,7 +392,7 @@ export function createApp() {
       border: { fg: 'green' },
       bg: 'black',
     },
-    label: ' Create Multiple Agent VMs ',
+    label: ' Create Multiple Branches ',
     tags: true,
   });
 
@@ -430,7 +430,7 @@ export function createApp() {
       border: { fg: 'red' },
       bg: 'black',
     },
-    label: ' Confirm Delete All ',
+    label: ' Confirm Delete All Branches ',
     content: '',
     tags: true,
   });
@@ -473,47 +473,45 @@ export function createApp() {
       '  {bold}Navigation{/bold}',
       '  j / ↓         Move selection down',
       '  k / ↑         Move selection up',
-      '  a             Jump to next VM needing attention',
-      '  Enter         Open VM in right pane',
+      '  a             Jump to next branch needing attention',
+      '  Enter         Open branch in right pane',
       '  Tab           Toggle sidebar (zoom right pane)',
       '  Ctrl-b ←/→    Switch focus between panes',
       '',
-      '  {bold}VM Management{/bold}',
-      '  c             Create a new agent VM',
-      '  C (shift)     Create multiple VMs at once',
-      '  d             Delete selected VM',
-      '  D (shift)     Delete ALL VMs at once',
-      '  r             Re-provision selected VM (update config)',
-      '  R (shift)     Re-provision ALL VMs at once',
-      '  l             Rename/label selected VM',
-      '  t             Retry provisioning on failed VM',
-      '  m             Mount VM filesystem (sshfs)',
-      '  u             Unmount VM filesystem',
+      '  {bold}Branch Management{/bold}',
+      '  c             Create a new branch (git worktree)',
+      '  C (shift)     Create multiple branches at once',
+      '  d             Delete selected branch',
+      '  D (shift)     Delete ALL branches at once',
+      '  r             Re-provision selected branch (update config)',
+      '  R (shift)     Re-provision ALL branches at once',
+      '  l             Rename/label selected branch',
+      '  t             Retry provisioning on failed branch',
       '',
       '  {bold}Prompts{/bold}',
-      '  p             Send prompt to selected VM',
-      '  b             Broadcast prompt to all VMs',
-      '  Q (shift)     Queue prompt for selected VM (auto-sends)',
-      '  B (shift)     Queue prompt to ALL VMs (broadcast queue)',
+      '  p             Send prompt to selected branch',
+      '  b             Broadcast prompt to all branches',
+      '  Q (shift)     Queue prompt for selected branch (auto-sends)',
+      '  B (shift)     Queue prompt to ALL branches (broadcast queue)',
       '  x             Stop/cancel running agent (kills tmux window)',
-      '  o             Export VM console log to ~/.pigs/logs/',
-      '  v             View/manage prompt queue for selected VM',
+      '  o             Export console log to ~/.pigs/logs/',
+      '  v             View/manage prompt queue for selected branch',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
       '',
       '  {bold}Other{/bold}',
       '  L (shift)     View Linear tasks (Space:select  Enter:claim)',
-      '  g             View PR chain for selected VM\'s repo',
+      '  g             View PR chain for selected branch',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
-      '  /             Search/filter VMs in sidebar',
-      '  E (shift)     Copy VM error to clipboard',
+      '  /             Search/filter branches in sidebar',
+      '  E (shift)     Copy error to clipboard',
       '  Escape        Clear search filter (in normal mode)',
       '  ?             Toggle this help screen',
       '  q             Quit',
       '  Ctrl-C        Force quit',
       '',
       '  {bold}Info{/bold}',
-      '  Right pane shows active VM terminal (live)',
+      '  Right pane shows active branch terminal (live)',
       '  Elapsed time shown in sidebar when task is running',
       '  Queued prompts [q:N] auto-send when current task finishes',
       '',
@@ -559,7 +557,7 @@ export function createApp() {
       border: { fg: 'green' },
       bg: 'black',
     },
-    label: ' Rename VM ',
+    label: ' Rename Branch ',
     tags: true,
   });
 
@@ -832,7 +830,7 @@ export function createApp() {
       border: { fg: 'cyan' },
       bg: 'black',
     },
-    label: ' Search VMs ',
+    label: ' Search Branches ',
     tags: true,
   });
 
@@ -858,14 +856,14 @@ export function createApp() {
       if (child !== sidebar) child.detach();
     });
 
-    // Update sidebar label with VM status summary
+    // Update sidebar label with branch status summary
     const summary = buildVmSummary(state.vms);
     const filterLabel = state.searchFilter ? ` filter:"${state.searchFilter}"` : '';
     const sortLabel = state.sortMode !== 'default' ? ` sort:${state.sortMode}` : '';
     if (summary) {
-      sidebar.setLabel(` VMs (${summary})${filterLabel}${sortLabel} `);
+      sidebar.setLabel(` Branches (${summary})${filterLabel}${sortLabel} `);
     } else {
-      sidebar.setLabel(` VMs${filterLabel}${sortLabel} `);
+      sidebar.setLabel(` Branches${filterLabel}${sortLabel} `);
     }
 
     const displayed = getFilteredVMs();
@@ -873,7 +871,7 @@ export function createApp() {
     if (displayed.length === 0) {
       blessed.text({
         parent: sidebar,
-        content: state.searchFilter ? `No VMs matching "${state.searchFilter}"` : 'No VMs running',
+        content: state.searchFilter ? `No branches matching "${state.searchFilter}"` : 'No branches',
         top: 1,
         left: 1,
         style: { fg: 'gray' },
@@ -885,13 +883,12 @@ export function createApp() {
         const isActive = realIndex === state.activeVmIndex;
         const isSelected = realIndex === state.sidebarSelectedIndex;
         const attention = vm.needsAttention ? ' {red-fg}{bold}!{/bold}{/red-fg}' : '';
-        const statusIcon = vm.status === 'running' ? '*' : '-';
+        const statusIcon = vm.status === 'active' ? '*' : '-';
         const prefix = isActive ? '>' : ' ';
         const provLabel = vm.provisioningStatus === 'provisioning' ? ' [setup]'
           : vm.provisioningStatus === 'failed' ? ' [fail]'
           : vm.provisioningStatus === 'pending' ? ' [wait]'
           : '';
-        const mountLabel = vm.mountPath ? ' [mnt]' : '';
         const elapsed = vm.taskStartedAt ? ` ${formatElapsed(vm.taskStartedAt, Date.now())}` : '';
         const qCount = queueSize(vm.name);
         const queueLabel = qCount > 0 ? ` {magenta-fg}[q:${qCount}]{/magenta-fg}` : '';
@@ -910,7 +907,7 @@ export function createApp() {
             border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
             bg: isSelected ? 'black' : undefined,
           },
-          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.pendingAction ? `{yellow-fg}${vm.pendingAction}{/yellow-fg}` : vm.status}${provLabel}${mountLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
+          content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.pendingAction ? `{yellow-fg}${vm.pendingAction}{/yellow-fg}` : vm.status}${provLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
         });
 
@@ -950,7 +947,7 @@ export function createApp() {
   function showConfirmDelete(vm: VM) {
     state.mode = 'confirm-delete';
     confirmDialog.setContent(
-      `\n  Delete VM "${vm.name}"?\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
+      `\n  Delete branch "${vm.name}"?\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
     );
     confirmDialog.show();
     confirmDialog.focus();
@@ -966,7 +963,7 @@ export function createApp() {
   function showConfirmDeleteAll(count: number) {
     state.mode = 'confirm-delete-all';
     confirmDeleteAllDialog.setContent(
-      `\n  Delete ALL ${count} VMs?\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
+      `\n  Delete ALL ${count} branches?\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
     );
     confirmDeleteAllDialog.show();
     confirmDeleteAllDialog.focus();
@@ -982,7 +979,7 @@ export function createApp() {
   function showConfirmReprovisionAll(count: number) {
     state.mode = 'confirm-reprovision-all';
     confirmReprovisionAllDialog.setContent(
-      `\n  Re-provision ALL ${count} VMs?\n  (reloads CLAUDE.md + hooks)\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
+      `\n  Re-provision ALL ${count} branches?\n  (reloads CLAUDE.md + hooks)\n\n  Press {bold}y{/bold} to confirm, {bold}n{/bold} to cancel`
     );
     confirmReprovisionAllDialog.show();
     confirmReprovisionAllDialog.focus();
@@ -1235,16 +1232,6 @@ export function createApp() {
     } else if (state.mode === 'confirm-reprovision-all') {
       hideConfirmReprovisionAll();
     }
-  });
-
-  screen.key(['m'], () => {
-    if (state.mode !== 'normal') return;
-    handlers['mount']?.();
-  });
-
-  screen.key(['u'], () => {
-    if (state.mode !== 'normal') return;
-    handlers['unmount']?.();
   });
 
   screen.key(['p'], () => {
@@ -1820,7 +1807,7 @@ export function createApp() {
     const cellWidth = Math.floor(availWidth / cols) - 2;
 
     if (displayed.length === 0) {
-      dashboardOverlay.setContent('\n  {gray-fg}No VMs to display{/gray-fg}');
+      dashboardOverlay.setContent('\n  {gray-fg}No branches to display{/gray-fg}');
       return;
     }
 

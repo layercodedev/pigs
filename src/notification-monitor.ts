@@ -1,20 +1,57 @@
-import type { SpritesClient } from '@fly/sprites';
-import type { VM } from './types.ts';
-import { shellExec } from './shell-exec.ts';
+import { existsSync, unlinkSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import type { Branch } from './types.ts';
 
 const SIGNAL_FILE = '/tmp/claude-done-signal';
 const POLL_INTERVAL_MS = 5000;
 
 /**
- * The shell command installed as a Claude Code Stop hook on each VM.
- * When Claude finishes responding, this creates a signal file.
+ * Get the signal file path for a specific worktree.
  */
-export const STOP_HOOK_COMMAND = `touch ${SIGNAL_FILE}`;
+function getSignalPath(worktreePath: string): string {
+  try {
+    const hash = execSync(`printf '%s' '${worktreePath.replace(/'/g, "'\\''")}' | md5sum 2>/dev/null | cut -c1-8 || printf '%s' '${worktreePath.replace(/'/g, "'\\''")}' | md5 -q 2>/dev/null | cut -c1-8`, {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    }).trim();
+    return `/tmp/claude-done-signal-${hash}`;
+  } catch {
+    return `/tmp/claude-done-signal-${worktreePath.replace(/[^a-zA-Z0-9]/g, '-')}`;
+  }
+}
 
 /**
- * The Claude Code hooks configuration written to the VM's
- * ~/.claude/settings.json to fire a Stop hook when Claude finishes.
+ * Build a Stop hook command for a specific worktree.
  */
+export function makeStopHookCommand(worktreePath: string): string {
+  const signalPath = getSignalPath(worktreePath);
+  return `touch '${signalPath.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * Build the Claude Code hooks configuration for a specific worktree.
+ */
+export function makeHooksConfig(worktreePath: string) {
+  return {
+    permissions: {
+      defaultMode: 'bypassPermissions',
+    },
+    hooks: {
+      Stop: [
+        {
+          hooks: [
+            {
+              type: 'command' as const,
+              command: makeStopHookCommand(worktreePath),
+            },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+// Legacy export for compatibility with tests
 export const CLAUDE_HOOKS_CONFIG = {
   permissions: {
     defaultMode: 'bypassPermissions',
@@ -25,7 +62,7 @@ export const CLAUDE_HOOKS_CONFIG = {
         hooks: [
           {
             type: 'command' as const,
-            command: STOP_HOOK_COMMAND,
+            command: `touch ${SIGNAL_FILE}`,
           },
         ],
       },
@@ -36,22 +73,17 @@ export const CLAUDE_HOOKS_CONFIG = {
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 /**
- * Start polling VMs for the done-signal file.
- * When found, sets `needsAttention = true` on the VM and removes the signal.
- *
- * @param client  Sprites API client
- * @param vms     Live reference to the VM array (mutated in place)
- * @param onChange Called whenever a VM's needsAttention flag changes
+ * Start polling branches for the done-signal file.
+ * When found, sets `needsAttention = true` on the branch and removes the signal.
  */
 export function startMonitor(
-  client: SpritesClient,
-  vms: VM[],
+  branches: Branch[],
   onChange: () => void,
 ): void {
-  if (pollTimer) return; // already running
+  if (pollTimer) return;
 
   pollTimer = setInterval(() => {
-    pollAll(client, vms, onChange);
+    pollAll(branches, onChange);
   }, POLL_INTERVAL_MS);
 }
 
@@ -66,31 +98,30 @@ export function stopMonitor(): void {
 }
 
 /**
- * Check all running, provisioned VMs for the done-signal file and git repo info.
+ * Check all provisioned branches for the done-signal file and git repo info.
  */
 async function pollAll(
-  client: SpritesClient,
-  vms: VM[],
+  branches: Branch[],
   onChange: () => void,
 ): Promise<void> {
-  const candidates = vms.filter(
-    (vm) => vm.provisioningStatus === 'done',
+  const candidates = branches.filter(
+    (b) => b.provisioningStatus === 'done',
   );
 
-  for (const vm of candidates) {
+  for (const branch of candidates) {
     let changed = false;
     try {
-      if (!vm.needsAttention) {
-        await checkSignal(client, vm);
-        if (vm.needsAttention) {
+      if (!branch.needsAttention) {
+        checkSignal(branch);
+        if (branch.needsAttention) {
           changed = true;
         }
       }
     } catch {
-      // Ignore poll errors (VM may be cold/stopped)
+      // Ignore poll errors
     }
     try {
-      const labelChanged = await checkGitLabel(client, vm);
+      const labelChanged = checkGitLabel(branch);
       if (labelChanged) {
         changed = true;
       }
@@ -104,59 +135,60 @@ async function pollAll(
 }
 
 /**
- * Check a single VM for the signal file and consume it.
+ * Check a single branch for the signal file and consume it.
  */
-async function checkSignal(client: SpritesClient, vm: VM): Promise<void> {
-  const sprite = client.sprite(vm.name);
-  const { stdout } = await shellExec(sprite, `test -f ${SIGNAL_FILE} && echo FOUND && rm -f ${SIGNAL_FILE} || true`);
-  if (String(stdout).trim() === 'FOUND') {
-    vm.needsAttention = true;
-    vm.taskStartedAt = undefined;
+function checkSignal(branch: Branch): void {
+  const signalPath = getSignalPath(branch.worktreePath);
+  if (existsSync(signalPath)) {
+    branch.needsAttention = true;
+    branch.taskStartedAt = undefined;
+    try {
+      unlinkSync(signalPath);
+    } catch {
+      // Ignore
+    }
   }
 }
 
 /**
- * Clear the attention flag for a VM (e.g. when user activates it).
+ * Clear the attention flag for a branch.
  */
-export function clearAttention(vm: VM): void {
-  vm.needsAttention = false;
+export function clearAttention(branch: Branch): void {
+  branch.needsAttention = false;
 }
 
 /**
- * Return the default display label for a VM: last 6 chars of the VM name.
+ * Return the default display label for a branch.
  */
-export function defaultLabel(vmName: string): string {
-  return vmName.slice(-6);
+export function defaultLabel(branchName: string): string {
+  return branchName;
 }
 
 /**
- * Check a VM for a git repo and update displayLabel to "dirname:branch" if found.
- * Falls back to the last 6 chars of the VM name when not in a git repo.
+ * Check a branch for git repo info and update displayLabel if changed.
  * Returns true if the label changed.
  */
-async function checkGitLabel(client: SpritesClient, vm: VM): Promise<boolean> {
-  // Skip VMs with user-set custom labels
-  if (vm.customLabel) return false;
+function checkGitLabel(branch: Branch): boolean {
+  if (branch.customLabel) return false;
 
-  const sprite = client.sprite(vm.name);
-  const { stdout } = await shellExec(sprite,
-    'cd /root && git rev-parse --show-toplevel --abbrev-ref HEAD 2>/dev/null || true',
-  );
-  const lines = String(stdout).trim().split('\n').filter(Boolean);
   let newLabel: string;
-  if (lines.length === 2) {
-    const dirName = lines[0].split('/').pop() || lines[0];
-    const branch = lines[1];
-    newLabel = `${dirName}:${branch}`;
-  } else {
-    newLabel = defaultLabel(vm.name);
+  try {
+    const branchName = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd: branch.worktreePath,
+      encoding: 'utf-8',
+      stdio: 'pipe',
+    }).trim();
+    newLabel = branchName || branch.name;
+  } catch {
+    newLabel = branch.name;
   }
-  if (vm.displayLabel !== newLabel) {
-    vm.displayLabel = newLabel;
+
+  if (branch.displayLabel !== newLabel) {
+    branch.displayLabel = newLabel;
     return true;
   }
   return false;
 }
 
 // Expose for testing
-export { pollAll as _pollAll, checkSignal as _checkSignal, checkGitLabel as _checkGitLabel, SIGNAL_FILE, POLL_INTERVAL_MS };
+export { pollAll as _pollAll, checkSignal as _checkSignal, checkGitLabel as _checkGitLabel, getSignalPath as _getSignalPath, SIGNAL_FILE, POLL_INTERVAL_MS };

@@ -5,8 +5,8 @@ import type { VM } from '../types.ts';
 function makeVM(overrides: Partial<VM> = {}): VM {
   return {
     name: 'pigs-abc123',
-    id: 'pigs-abc123',
-    status: 'running',
+    worktreePath: '/tmp/worktrees/pigs-abc123',
+    status: 'active',
     createdAt: new Date().toISOString(),
     needsAttention: false,
     provisioningStatus: 'done',
@@ -59,11 +59,11 @@ describe('filterVMs', () => {
 
   it('filters by status', () => {
     const vms = [
-      makeVM({ name: 'vm1', status: 'running' }),
-      makeVM({ name: 'vm2', status: 'stopped' }),
-      makeVM({ name: 'vm3', status: 'running' }),
+      makeVM({ name: 'vm1', status: 'active' }),
+      makeVM({ name: 'vm2', status: 'idle' }),
+      makeVM({ name: 'vm3', status: 'active' }),
     ];
-    const result = filterVMs(vms, 'stopped');
+    const result = filterVMs(vms, 'idle');
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('vm2');
   });
