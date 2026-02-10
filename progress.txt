@@ -94,3 +94,35 @@ Changes:
   added grid cleanup on quit
 
 All 221 unit tests pass. TypeScript type check passes.
+
+## 2026-02-10: Task 6 - Replace touch-file notification with tmux wait-for
+
+Replaced the file-based polling notification system with tmux's native `wait-for`
+channel signaling. This gives instant notification when Claude Code finishes a task
+(previously had up to 5 seconds of polling latency).
+
+How it works:
+- The Claude Code Stop hook now runs `tmux wait-for -S pigs-done-{hash}` instead
+  of `touch /tmp/claude-done-signal-{hash}`
+- The monitor spawns `tmux wait-for pigs-done-{hash}` listener processes per branch,
+  which block until the channel is signaled — giving instant notification
+- After each signal, the listener automatically re-registers for the next one
+- A slow 10-second poll remains for git label updates only (not for completion)
+- New `registerBranch()` function lets index.ts register listeners for newly
+  provisioned branches
+
+Changes:
+- notification-monitor.ts: Complete rewrite — replaced file polling with tmux
+  wait-for channel listeners. `getSignalPath` → `getChannelName`, `checkSignal`
+  removed, `pollAll` replaced with `pollLabels` (git labels only), added
+  `waitForBranch()` and `registerBranch()`. Stop hook command changed from
+  `touch` to `tmux wait-for -S`.
+- index.ts: Import `registerBranch`, call it after each successful provisioning
+  (4 locations), extracted `onBranchDone` callback for reuse.
+- notification-monitor.test.ts: Updated tests for new tmux wait-for API —
+  assertions check for `tmux wait-for -S` instead of `touch`, added
+  `getChannelName` tests, updated exports.
+- integration.test.ts: Updated `makeStopHookCommand` assertion from `touch`
+  to `tmux wait-for -S`.
+
+All 224 unit tests pass. TypeScript type check passes.

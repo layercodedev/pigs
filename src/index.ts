@@ -4,7 +4,7 @@ import { createApp } from './tui.ts';
 import { listBranches, createBranch, deleteBranch, generateBranchName, getRepoRoot, getRepoName, copyConfigFiles } from './worktree-client.ts';
 import { findOpenPort } from './port-finder.ts';
 import { loadSettings, provisionBranch, reprovisionBranch } from './provisioner.ts';
-import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.ts';
+import { startMonitor, stopMonitor, clearAttention, registerBranch } from './notification-monitor.ts';
 import { loadHistory, addToHistory } from './prompt-history.ts';
 import { appendOutput, getOutput, clearOutput } from './output-buffer.ts';
 import { exportLog } from './log-export.ts';
@@ -115,11 +115,14 @@ async function main() {
     }
   }
 
-  // Start polling for Claude Code finish notifications
-  startMonitor(state.vms, () => {
+  // Callback when a branch signals completion
+  const onBranchDone = () => {
     app.render();
     processQueues();
-  });
+  };
+
+  // Start monitoring for Claude Code finish notifications via tmux wait-for
+  startMonitor(state.vms, onBranchDone);
 
   // Selection changed handler
   app.onKey('selection-changed', () => {});
@@ -181,6 +184,7 @@ async function main() {
           appendOutput(vm.name, `${msg}\n`);
         });
         vm.provisioningStatus = 'done';
+        registerBranch(vm, onBranchDone);
         app.stopSpinner();
         app.setStatusMessage(`✓ ${vm.name} created`);
       } catch (err: any) {
@@ -219,6 +223,7 @@ async function main() {
         try {
           await provisionBranch(vm.worktreePath, state.settings ?? undefined);
           vm.provisioningStatus = 'done';
+          registerBranch(vm, onBranchDone);
         } catch {
           vm.provisioningStatus = 'failed';
         }
@@ -433,6 +438,7 @@ async function main() {
         appendOutput(vm.name, `${msg}\n`);
       });
       vm.provisioningStatus = 'done';
+      registerBranch(vm, onBranchDone);
       app.stopSpinner();
       app.setStatusMessage(`✓ ${vm.displayLabel ?? vm.name} provisioned`);
     } catch (err: any) {
@@ -712,6 +718,7 @@ async function main() {
             appendOutput(vm.name, `${msg}\n`);
           });
           vm.provisioningStatus = 'done';
+          registerBranch(vm, onBranchDone);
         } catch {
           vm.provisioningStatus = 'failed';
           app.render();

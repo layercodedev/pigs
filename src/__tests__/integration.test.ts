@@ -136,9 +136,9 @@ describe('Notification monitor (live)', () => {
     expect(defaultLabel(testBranch.name)).toBe(testBranch.name);
   });
 
-  it('makeStopHookCommand returns a touch command', () => {
+  it('makeStopHookCommand returns a tmux wait-for command', () => {
     const cmd = makeStopHookCommand(worktreePath);
-    expect(cmd).toContain('touch');
+    expect(cmd).toContain('tmux wait-for -S');
   });
 
   it('makeHooksConfig returns valid config', () => {

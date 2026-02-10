@@ -8,4 +8,4 @@
 
 ~~Add grid feature which shows all agent terminals in grid at same time.~~ DONE
 
-Claude complete notification could probably be done via tmux terminal notifications or claude hooks, instead of the touch file method now.
+~~Claude complete notification could probably be done via tmux terminal notifications or claude hooks, instead of the touch file method now.~~ DONE
