@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
 import { createApp } from './tui.ts';
-import { listBranches, createBranch, deleteBranch, generateBranchName, getRepoRoot, copyConfigFiles } from './worktree-client.ts';
+import { listBranches, createBranch, deleteBranch, generateBranchName, getRepoRoot, getRepoName, copyConfigFiles } from './worktree-client.ts';
+import { findOpenPort } from './port-finder.ts';
 import { loadSettings, provisionBranch, reprovisionBranch } from './provisioner.ts';
 import { startMonitor, stopMonitor, clearAttention } from './notification-monitor.ts';
 import { loadHistory, addToHistory } from './prompt-history.ts';
@@ -460,6 +461,55 @@ async function main() {
       app.setStatusMessage(`Export failed: ${err.message}`);
     }
     setTimeout(() => app.resetStatus(), 3000);
+  });
+
+  // Open app handler - start dev server and open browser
+  app.onKey('open-app', async () => {
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm) return;
+
+    if (vm.provisioningStatus !== 'done') {
+      app.setStatusMessage(`${vm.displayLabel ?? vm.name} is not provisioned yet`);
+      setTimeout(() => app.resetStatus(), 3000);
+      return;
+    }
+
+    app.setStatusMessage(`Finding open port for ${vm.displayLabel ?? vm.name}...`);
+
+    try {
+      const port = await findOpenPort(3000);
+      vm.devServerPort = port;
+
+      const repoName = getRepoName();
+      const branchName = vm.name;
+      const host = `${branchName}-${repoName}.localhost`;
+      const url = `http://${host}:${port}`;
+
+      // Start dev server with PORT env var in the right pane
+      const escapedPath = vm.worktreePath.replace(/'/g, "'\\''");
+      const command = `cd '${escapedPath}' && PORT=${port} npm run dev`;
+
+      state.activeVmIndex = state.sidebarSelectedIndex;
+      openVmInRightPane(vm.name, command);
+      app.render();
+
+      // Open browser after a short delay to let the server start
+      setTimeout(async () => {
+        try {
+          const { execSync: exec } = await import('node:child_process');
+          const openCmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+          exec(`${openCmd} '${url}'`, { stdio: 'pipe' });
+        } catch {
+          // Browser open failed silently
+        }
+      }, 2000);
+
+      app.setStatusMessage(`Dev server starting on ${url}`);
+      setTimeout(() => app.resetStatus(), 5000);
+    } catch (err: any) {
+      app.setStatusMessage(`Failed to start dev server: ${err.message}`);
+      setTimeout(() => app.resetStatus(), 3000);
+    }
   });
 
   // Queue remove handler

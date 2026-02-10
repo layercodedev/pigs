@@ -272,7 +272,7 @@ export function createApp() {
     content: '',
   });
 
-  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  a:attn  g:prs  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  w:web  a:attn  g:prs  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
 
   // Status bar at the bottom
   const statusBar = blessed.box({
@@ -494,6 +494,7 @@ export function createApp() {
       '  Q (shift)     Queue prompt for selected branch (auto-sends)',
       '  B (shift)     Queue prompt to ALL branches (broadcast queue)',
       '  x             Stop/cancel running agent (kills tmux window)',
+      '  w             Open app (start dev server + open browser)',
       '  o             Export console log to ~/.pigs/logs/',
       '  v             View/manage prompt queue for selected branch',
       '  ↑ / ↓         Cycle prompt history (in dialog)',
@@ -1372,6 +1373,14 @@ export function createApp() {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
     showQueueViewer(vm);
+  });
+
+  screen.key(['w'], () => {
+    if (state.mode !== 'normal') return;
+    if (state.vms.length === 0) return;
+    const vm = state.vms[state.sidebarSelectedIndex];
+    if (!vm || vm.provisioningStatus !== 'done') return;
+    handlers['open-app']?.();
   });
 
   screen.key(['g'], () => {

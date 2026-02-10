@@ -10,6 +10,7 @@ export interface Branch {
   taskStartedAt?: number;
   pendingAction?: string;
   lastError?: string;
+  devServerPort?: number;
 }
 
 // Backwards-compatible alias

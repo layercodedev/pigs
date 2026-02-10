@@ -48,3 +48,24 @@ Changes:
   the new command format.
 
 All 218 unit tests pass. TypeScript type check passes.
+
+## 2026-02-10: Task 4 - Add 'open app' command
+
+Added a new 'open app' command (keybinding: `w`) that starts the dev server in a
+worktree and opens the browser with a subdomain-style localhost URL for easy
+identification of which branch is running in which browser tab.
+
+How it works:
+- Pressing `w` on a provisioned branch finds an open port starting from 3000
+- Starts `npm run dev` with `PORT=<port>` env var in the worktree's right pane
+- Opens the browser after a 2-second delay to `http://branchname-reponame.localhost:port`
+- The port is tracked per branch via `devServerPort` on the Branch type
+
+Changes:
+- types.ts: Added optional `devServerPort` field to Branch interface
+- port-finder.ts: NEW - finds available ports by attempting to bind starting from 3000
+- index.ts: Added `open-app` handler that finds a port, starts dev server, opens browser
+- tui.ts: Added `w` keybinding for open-app, added to status bar and help text
+- port-finder.test.ts: NEW - 3 tests for port finding (basic, skips occupied, first available)
+
+All 221 unit tests pass. TypeScript type check passes.
