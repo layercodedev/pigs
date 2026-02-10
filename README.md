@@ -4,27 +4,29 @@ A terminal UI for orchestrating multiple [Claude Code](https://docs.anthropic.co
 
 Spin up a fleet of agent VMs, send them prompts, monitor their progress in real-time, queue up sequential tasks, and broadcast instructions to every agent at once — all from a single terminal.
 
-Built on [sprites.dev](https://sprites.dev) for VM provisioning and [blessed](https://github.com/chjj/blessed) for the terminal interface.
+Built on [sprites.dev](https://sprites.dev) for VM provisioning and [tmux](https://github.com/tmux/tmux) for session management.
+
+Pigs runs inside a tmux session with a two-pane layout: the left pane shows the blessed TUI sidebar, and the right pane shows the active VM's live terminal. The sidebar stays visible at all times — no more switching between tmux windows to check on your fleet.
 
 ```
-┌─ VMs (5 ready) ──────────────┐  ┌─ Console: myapp:main ───────────────┐
-│                               │  │                                     │
-│ > * myapp:main         3m12s  │  │ $ claude -p 'Add auth middleware'   │
-│     myapp:feature-x    1m45s  │  │                                     │
-│   ! api-server:dev            │  │ I'll add JWT authentication         │
-│     frontend:redesign  5m03s  │  │ middleware to the Express app...    │
-│     tests:ci           0m30s  │  │                                     │
-│                               │  │ Created src/middleware/auth.ts      │
-│                               │  │ Updated src/index.ts                │
-│                               │  │ All tests passing.                  │
-│                               │  │                                     │
-└───────────────────────────────┘  └─────────────────────────────────────┘
- c:create C:bulk d:del p:prompt b:broadcast f:ralph Q:queue i:dash ?:help
+┌─ VMs (5 ready) ──────┬──────────────────────────────────────┐
+│                       │ $ claude -p 'Add auth middleware'    │
+│ > * myapp:main 3m12s  │                                      │
+│   myapp:feat   1m45s  │ I'll add JWT authentication          │
+│ ! api-server          │ middleware to the Express app...     │
+│   frontend     5m03s  │                                      │
+│   tests        0m30s  │ Created src/middleware/auth.ts       │
+│                       │                                      │
+│                       │                                      │
+└───────────────────────┴──────────────────────────────────────┘
+ c:create  Enter:open  Tab:toggle  p:prompt  b:bcast  ?:help
+   Left pane (sidebar)     Right pane (active VM terminal)
 ```
 
 ## Installation
 
 **Prerequisites:**
+- [tmux](https://github.com/tmux/tmux) installed (`brew install tmux` on macOS, `apt install tmux` on Linux)
 - A [sprites.dev](https://sprites.dev) account with API access
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) authenticated locally (your auth token is automatically synced to VMs during provisioning)
 
@@ -55,12 +57,14 @@ On first launch, pigs creates `~/.pigs/settings.json` with a default `CLAUDE.md`
 
 ## Quick Start
 
-1. **Start pigs** — `bun start` (or just `pigs` if installed via the one-line installer)
+1. **Start pigs** — `bun start` (or just `pigs` if installed via the one-line installer). Pigs launches inside a tmux session automatically.
 2. **Create a VM** — Press `c` to create a single agent VM, or `C` to create a batch (up to 20)
 3. **Wait for provisioning** — VMs show `[setup]` in the sidebar while Claude Code and SSH are being installed
-4. **Send a prompt** — Press `p`, type your instruction, hit Enter. The agent starts working.
-5. **Watch it work** — The console shows real-time output. Navigate between agents with `j`/`k` to see previews without attaching.
-6. **Get notified** — When an agent finishes, a `!` attention indicator appears in the sidebar. Press `a` to jump to it.
+4. **Send a prompt** — Press `p`, type your instruction, hit Enter. The right pane shows the agent running live.
+5. **Switch focus** — Press `Ctrl-b →` to interact with the VM terminal, `Ctrl-b ←` to return to the sidebar.
+6. **Watch it work** — Navigate between agents with `j`/`k`. Press `Enter` on a VM to open it in the right pane.
+7. **Toggle sidebar** — Press `Tab` to hide the sidebar and give the VM terminal full screen. `Ctrl-b z` to restore.
+8. **Get notified** — When an agent finishes, a `!` attention indicator appears in the sidebar. Press `a` to jump to it.
 
 ## Common Workflows
 
@@ -70,8 +74,8 @@ The simplest flow: send one prompt to one agent.
 
 1. Select the VM with `j`/`k`
 2. Press `p` to open the prompt dialog
-3. Type your instruction and press Enter
-4. Watch output in real-time. Press Escape to detach (the agent keeps running).
+3. Type your instruction and press Enter — the right pane shows the agent running live
+4. Press `Ctrl-b →` to interact with the VM terminal, `Ctrl-b ←` to return to the sidebar
 
 ### Parallel Development Across Multiple Agents
 
@@ -265,15 +269,28 @@ jobs:
 
 ## Feature Reference
 
-### Navigation
+### Pane Layout
+
+Pigs uses a two-pane tmux layout in window 0. The left pane is the blessed TUI sidebar; the right pane is the active VM's live terminal. Background VMs (broadcasts, queues) still run in separate tmux windows invisibly.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl-b →` | Focus the right pane (VM terminal) |
+| `Ctrl-b ←` | Focus the left pane (sidebar) |
+| `Tab` | Hide sidebar — zooms right pane to full screen |
+| `Ctrl-b z` | Restore sidebar (standard tmux unzoom) |
+
+These are standard tmux keys — the default prefix is `Ctrl-b`. If you've rebound your tmux prefix, use that instead.
+
+### Sidebar Navigation
 
 | Key | Action |
 |-----|--------|
 | `j` / `↓` | Move selection down in sidebar |
 | `k` / `↑` | Move selection up in sidebar |
 | `a` | Jump to next VM needing attention (cycles through) |
-| `Enter` | Attach console to selected VM (live I/O) |
-| `Escape` | Detach from console / clear search filter |
+| `Enter` | Open selected VM in the right pane |
+| `Escape` | Clear search filter |
 
 ### VM Management
 
@@ -294,13 +311,13 @@ jobs:
 
 | Key | Action |
 |-----|--------|
-| `p` | Send a `claude -p` prompt to the selected VM |
-| `b` | Broadcast a prompt to all provisioned VMs at once |
+| `p` | Send a `claude -p` prompt to the selected VM (opens in right pane) |
+| `b` | Broadcast a prompt to all provisioned VMs (active VM in right pane, others in background) |
 | `f` | Ralph mode — iterative autonomous execution with configurable iterations |
 | `Q` | Queue a prompt for the selected VM (auto-sends when idle) |
 | `B` | Broadcast-queue a prompt to all VMs (auto-sends when each becomes idle) |
 | `v` | View/manage the prompt queue for the selected VM |
-| `x` | Stop the running agent (sends Ctrl-C) |
+| `x` | Stop the running agent (resets the right pane if active) |
 | `o` | Export console log to `~/.pigs/logs/` |
 | `↑` / `↓` | Cycle through prompt history (inside any prompt dialog) |
 
@@ -311,6 +328,9 @@ jobs:
 | `i` | Toggle fleet dashboard — bird's-eye grid of all agents |
 | `s` | Cycle sort mode: default / name / status / attention / elapsed |
 | `/` | Search/filter VMs in the sidebar |
+| `g` | View PR chain for selected VM's repo |
+| `L` | View Linear tasks overlay |
+| `E` | Copy VM error to clipboard |
 | `?` | Toggle help screen |
 | `q` | Quit (graceful cleanup) |
 | `Ctrl-C` | Force quit |
@@ -320,7 +340,7 @@ jobs:
 | Indicator | Meaning |
 |-----------|---------|
 | `>` | Currently selected VM |
-| `*` | Console is attached to this VM |
+| `*` | VM is running |
 | `!` | Agent finished — needs attention |
 | `[setup]` | VM is being provisioned |
 | `[fail]` | Provisioning failed (press `t` to retry) |
@@ -366,12 +386,14 @@ Pigs runs in a terminal, which means you can monitor and control your agent flee
 2. Add a new host with your machine's IP/hostname, username, and SSH key or password
 3. Connect and run `cd pigs && bun start` (or attach to an existing session — see tmux tip below)
 
-**Tip: Use tmux so you can detach and reattach without losing your session:**
+Pigs already runs inside a tmux session (named `pigs`), so you can detach and reattach without losing your session:
 
 ```bash
-# On your machine, start pigs inside tmux
-tmux new -s pigs
+# On your machine, start pigs
 bun start
+
+# Detach from the tmux session (from any terminal)
+# Ctrl-b d
 
 # From Termius on your phone, reattach
 tmux attach -t pigs
