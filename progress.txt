@@ -18,3 +18,18 @@ Changes:
 - Excluded integration tests from default `bun test` (they run separately via test:integration)
 
 All 218 unit tests pass. TypeScript type check passes.
+
+## 2026-02-10: Task 2 - Ensure chained PRs functionally still works
+
+Verified chained PRs work correctly with the worktree-based setup. The PR chain viewer,
+tree building, stale detection, and sync/rebase all operate via `gh pr list` and `git`
+commands with `cwd: worktreePath`, which works correctly since all worktrees share the
+same git repository.
+
+Changes:
+- worktree-client.ts: Added optional `startPoint` parameter to `createBranch()` so new
+  worktrees can be created from a specific branch (e.g., `feature-b` from `feature-a`)
+  instead of always from HEAD. This is essential for creating chained branches where
+  each subsequent branch builds on the previous one.
+
+All 218 unit tests pass. TypeScript type check passes.

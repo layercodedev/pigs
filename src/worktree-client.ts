@@ -65,14 +65,15 @@ export function listBranches(repoRoot: string): Branch[] {
  * Create a new git worktree with a feature branch.
  * The worktree is created in a .worktrees/ directory next to the repo root.
  */
-export function createBranch(repoRoot: string, branchName: string, settings?: PigsSettings): Branch {
+export function createBranch(repoRoot: string, branchName: string, settings?: PigsSettings, startPoint?: string): Branch {
   const worktreesDir = join(dirname(repoRoot), '.worktrees', basename(repoRoot));
   mkdirSync(worktreesDir, { recursive: true });
 
   const worktreePath = join(worktreesDir, branchName);
 
-  // Create the worktree with a new branch
-  execSync(`git worktree add -b ${shellEscape(branchName)} ${shellEscape(worktreePath)}`, {
+  // Create the worktree with a new branch, optionally from a specific start point
+  const startArg = startPoint ? ` ${shellEscape(startPoint)}` : '';
+  execSync(`git worktree add -b ${shellEscape(branchName)} ${shellEscape(worktreePath)}${startArg}`, {
     cwd: repoRoot,
     stdio: 'pipe',
   });
