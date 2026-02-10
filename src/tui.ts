@@ -166,6 +166,7 @@ export function createApp() {
     smartCSR: true,
     title: 'pigs - Claude Agent Branch Manager',
     fullUnicode: true,
+    mouse: true,
   });
 
   // Restore original TERM so child processes inherit the real terminal type
@@ -199,6 +200,62 @@ export function createApp() {
     },
     scrollable: true,
     keys: true,
+    mouse: true,
+  });
+
+  // Track which sidebar item the mouse is hovering over (-1 = none)
+  let hoverVmIndex = -1;
+
+  // Map a mouse y-coordinate to the real VM index, or -1
+  function hitTestSidebar(absY: number): number {
+    const displayed = getFilteredVMs();
+    if (displayed.length === 0) return -1;
+    const relY = absY - (sidebar.atop as number) - 1;
+    let cumTop = 0;
+    for (let i = 0; i < displayed.length; i++) {
+      const realIndex = state.vms.indexOf(displayed[i]);
+      const isSelected = realIndex === state.sidebarSelectedIndex;
+      const cardHeight = isSelected ? 4 : 3;
+      if (relY >= cumTop && relY < cumTop + cardHeight) {
+        return realIndex;
+      }
+      cumTop += cardHeight;
+    }
+    return -1;
+  }
+
+  // Handle mouse clicks on sidebar items — select and activate (open terminal)
+  sidebar.on('click', (data: any) => {
+    if (state.mode !== 'normal') return;
+    const idx = hitTestSidebar(data.y);
+    if (idx >= 0) {
+      state.sidebarSelectedIndex = idx;
+      state.activeVmIndex = idx;
+      render();
+      // Defer activate to next tick so blessed finishes processing the click
+      // before tmux splits the pane (which triggers a resize)
+      process.nextTick(() => {
+        handlers['activate']?.();
+      });
+    }
+  });
+
+  // Handle mouse hover on sidebar items
+  sidebar.on('mousemove', (data: any) => {
+    if (state.mode !== 'normal') return;
+    const idx = hitTestSidebar(data.y);
+    if (idx !== hoverVmIndex) {
+      hoverVmIndex = idx;
+      renderSidebar();
+    }
+  });
+
+  // Clear hover when mouse leaves sidebar
+  sidebar.on('mouseout', () => {
+    if (hoverVmIndex !== -1) {
+      hoverVmIndex = -1;
+      renderSidebar();
+    }
   });
 
   // Main view: hidden — replaced by the live tmux right pane
@@ -272,7 +329,7 @@ export function createApp() {
     content: '',
   });
 
-  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  w:web  a:attn  g:prs  G:grid  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' Ctrl-K:commands  Enter:open  q:quit';
 
   // Status bar at the bottom
   const statusBar = blessed.box({
@@ -519,6 +576,175 @@ export function createApp() {
       '',
       '  {gray-fg}Press ? or Escape to close{/gray-fg}',
     ].join('\n'),
+  });
+
+  // Command menu items — each has a label, key hint, and the handler key to invoke
+  const commandMenuItems: { label: string; key: string; handler: string }[] = [
+    { label: 'Create branch', key: 'c', handler: 'create' },
+    { label: 'Bulk create branches', key: 'C', handler: 'bulk-create' },
+    { label: 'Delete branch', key: 'd', handler: 'delete' },
+    { label: 'Delete all branches', key: 'D', handler: 'delete-all' },
+    { label: 'Re-provision branch', key: 'r', handler: 'reprovision' },
+    { label: 'Re-provision all', key: 'R', handler: 'reprovision-all' },
+    { label: 'Rename/label branch', key: 'l', handler: 'rename' },
+    { label: 'Retry provisioning', key: 't', handler: 'retry-provision' },
+    { label: 'Open branch terminal', key: 'Enter', handler: 'activate' },
+    { label: 'Send prompt', key: 'p', handler: 'prompt' },
+    { label: 'Broadcast prompt', key: 'b', handler: 'broadcast' },
+    { label: 'Queue prompt', key: 'Q', handler: 'queue' },
+    { label: 'Broadcast queue', key: 'B', handler: 'broadcast-queue' },
+    { label: 'Ralph (iterative)', key: 'f', handler: 'ralph' },
+    { label: 'Stop agent', key: 'x', handler: 'stop-agent' },
+    { label: 'Open app (dev server)', key: 'w', handler: 'open-app' },
+    { label: 'Export log', key: 'o', handler: 'export-log' },
+    { label: 'View prompt queue', key: 'v', handler: 'queue-viewer' },
+    { label: 'PR chain', key: 'g', handler: 'pr-chain' },
+    { label: 'Grid view', key: 'G', handler: 'grid' },
+    { label: 'Linear tasks', key: 'L', handler: 'linear' },
+    { label: 'Dashboard', key: 'i', handler: 'dashboard' },
+    { label: 'Jump to attention', key: 'a', handler: 'attention' },
+    { label: 'Copy error to clipboard', key: 'E', handler: 'copy-error' },
+    { label: 'Sort branches', key: 's', handler: 'sort' },
+    { label: 'Search branches', key: '/', handler: 'search' },
+    { label: 'Help', key: '?', handler: 'help' },
+    { label: 'Quit', key: 'q', handler: 'quit' },
+  ];
+
+  let commandMenuIndex = 0;
+
+  // Command menu overlay (hidden by default)
+  const commandMenuOverlay = blessed.box({
+    parent: screen,
+    hidden: true,
+    top: 'center',
+    left: 'center',
+    width: 50,
+    height: commandMenuItems.length + 4,
+    border: { type: 'line' },
+    style: {
+      border: { fg: 'cyan' },
+      bg: 'black',
+    },
+    label: ' Commands (Ctrl-K) ',
+    tags: true,
+    scrollable: true,
+    mouse: true,
+  });
+
+  // Click to select and execute command menu items
+  commandMenuOverlay.on('click', (data: any) => {
+    if (state.mode !== 'command-menu') return;
+    // data.y is absolute; overlay border is 1 row, content starts with 1 empty line
+    const relY = data.y - (commandMenuOverlay.atop as number) - 2;
+    if (relY >= 0 && relY < commandMenuItems.length) {
+      commandMenuIndex = relY;
+      executeCommandMenuItem();
+    }
+  });
+
+  function renderCommandMenu() {
+    const lines = commandMenuItems.map((item, i) => {
+      const selected = i === commandMenuIndex;
+      const prefix = selected ? '{blue-bg}{white-fg}' : '';
+      const suffix = selected ? '{/white-fg}{/blue-bg}' : '';
+      const keyHint = `{gray-fg}${item.key.padStart(5)}{/gray-fg}`;
+      return `${prefix}  ${item.label.padEnd(30)} ${keyHint}  ${suffix}`;
+    });
+    commandMenuOverlay.setContent('\n' + lines.join('\n'));
+    screen.render();
+  }
+
+  function showCommandMenu() {
+    state.mode = 'command-menu';
+    commandMenuIndex = 0;
+    try { zoomPane('0.0'); } catch {}
+    commandMenuOverlay.show();
+    commandMenuOverlay.focus();
+    renderCommandMenu();
+    statusBar.setContent(' j/k:navigate  Enter:select  or press shortcut key  Escape:close');
+    screen.render();
+  }
+
+  function hideCommandMenu() {
+    state.mode = 'normal';
+    commandMenuOverlay.hide();
+    try { if (isZoomed('0.0')) zoomPane('0.0'); } catch {}
+    statusBar.setContent(normalStatusText);
+    screen.render();
+  }
+
+  function executeCommandMenuItem() {
+    const item = commandMenuItems[commandMenuIndex];
+    if (!item) return;
+    hideCommandMenu();
+
+    const vm = state.vms[state.sidebarSelectedIndex];
+
+    switch (item.handler) {
+      case 'create': handlers['create']?.(); break;
+      case 'bulk-create': showBulkCreate(); break;
+      case 'delete': if (vm) showConfirmDelete(vm); break;
+      case 'delete-all': if (state.vms.length > 0) showConfirmDeleteAll(state.vms.length); break;
+      case 'reprovision': if (vm?.provisioningStatus === 'done') handlers['reprovision']?.(); break;
+      case 'reprovision-all': {
+        const provisioned = state.vms.filter(v => v.provisioningStatus === 'done');
+        if (provisioned.length > 0) showConfirmReprovisionAll(provisioned.length);
+        break;
+      }
+      case 'rename': if (vm) showRename(vm); break;
+      case 'retry-provision': if (vm?.provisioningStatus === 'failed') handlers['retry-provision']?.(); break;
+      case 'activate':
+        if (vm) {
+          state.activeVmIndex = state.sidebarSelectedIndex;
+          render();
+          handlers['activate']?.();
+        }
+        break;
+      case 'prompt': if (vm) showPromptInput(vm); break;
+      case 'broadcast': if (state.vms.length > 0) showBroadcastInput(); break;
+      case 'queue': if (vm) showQueueInput(vm); break;
+      case 'broadcast-queue': if (state.vms.length > 0) showBroadcastQueueInput(); break;
+      case 'ralph': if (vm) showRalphIterationsInput(vm); break;
+      case 'stop-agent': if (vm) handlers['stop-agent']?.(); break;
+      case 'open-app': if (vm?.provisioningStatus === 'done') handlers['open-app']?.(); break;
+      case 'export-log': if (vm) handlers['export-log']?.(); break;
+      case 'queue-viewer': if (vm) showQueueViewer(vm); break;
+      case 'pr-chain': if (state.vms.length > 0) showPRChain(); break;
+      case 'grid':
+        state.mode = 'grid';
+        statusBar.setContent(' G:close grid  (grid shows live agent terminals)');
+        screen.render();
+        handlers['grid-open']?.();
+        break;
+      case 'linear': showLinear(); break;
+      case 'dashboard': showDashboard(); break;
+      case 'sort':
+        state.sortMode = nextSortMode(state.sortMode);
+        render();
+        break;
+      case 'search': showSearch(); break;
+      case 'help': showHelp(); break;
+      case 'copy-error': if (vm?.lastError) handlers['copy-error']?.(); break;
+      case 'attention': {
+        const nextIdx = findNextAttentionIndex(state.vms, state.sidebarSelectedIndex);
+        if (nextIdx >= 0) {
+          state.sidebarSelectedIndex = nextIdx;
+          render();
+          handlers['selection-changed']?.();
+        }
+        break;
+      }
+      case 'quit': gracefulQuit(); break;
+    }
+  }
+
+  screen.on('keypress', (ch: string | undefined) => {
+    if (state.mode !== 'command-menu' || !ch) return;
+    const idx = commandMenuItems.findIndex(item => item.key === ch);
+    if (idx >= 0) {
+      commandMenuIndex = idx;
+      executeCommandMenuItem();
+    }
   });
 
   // Dashboard overlay (hidden by default)
@@ -884,6 +1110,7 @@ export function createApp() {
         const realIndex = state.vms.indexOf(vm);
         const isActive = realIndex === state.activeVmIndex;
         const isSelected = realIndex === state.sidebarSelectedIndex;
+        const isHovered = realIndex === hoverVmIndex && !isSelected;
         const attention = vm.needsAttention ? ' {red-fg}{bold}!{/bold}{/red-fg}' : '';
         const statusIcon = vm.status === 'active' ? '*' : '-';
         const prefix = isActive ? '>' : ' ';
@@ -898,16 +1125,18 @@ export function createApp() {
         // Selected cards need extra height to fit both lines inside the border
         const cardHeight = isSelected ? 4 : 3;
 
+        const borderColor = vm.needsAttention ? 'red' : isSelected ? 'yellow' : isHovered ? 'white' : 'cyan';
+
         blessed.box({
           parent: sidebar,
           top: currentTop,
           left: 1,
           right: 1,
           height: cardHeight,
-          border: isSelected ? { type: 'line' } : undefined,
+          border: isSelected || isHovered ? { type: 'line' } : undefined,
           style: {
-            border: { fg: vm.needsAttention ? 'red' : isSelected ? 'yellow' : 'cyan' },
-            bg: isSelected ? 'black' : undefined,
+            border: { fg: borderColor },
+            bg: isSelected ? 'black' : isHovered ? 'colour235' : undefined,
           },
           content: `${prefix} ${statusIcon} ${vm.displayLabel ?? vm.name}${attention}\n  ${vm.pendingAction ? `{yellow-fg}${vm.pendingAction}{/yellow-fg}` : vm.status}${provLabel}${queueLabel}{cyan-fg}${elapsed}{/cyan-fg}`,
           tags: true,
@@ -1025,6 +1254,10 @@ export function createApp() {
   }
 
   screen.key(['q'], () => {
+    if (state.mode === 'command-menu') {
+      hideCommandMenu();
+      return;
+    }
     if (state.mode === 'confirm-delete') {
       hideConfirmDelete();
       return;
@@ -1088,7 +1321,22 @@ export function createApp() {
     gracefulQuit();
   });
 
+  // Ctrl-K: open command menu (also triggered by tmux bind -n from agent pane)
+  screen.key(['C-k'], () => {
+    if (state.mode === 'command-menu') {
+      hideCommandMenu();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    showCommandMenu();
+  });
+
   screen.key(['j', 'down'], () => {
+    if (state.mode === 'command-menu') {
+      commandMenuIndex = Math.min(commandMenuIndex + 1, commandMenuItems.length - 1);
+      renderCommandMenu();
+      return;
+    }
     if (state.mode === 'linear') {
       if (linearIssues.length > 0 && linearSelectedIndex < linearIssues.length - 1) {
         linearSelectedIndex++;
@@ -1127,6 +1375,11 @@ export function createApp() {
   });
 
   screen.key(['k', 'up'], () => {
+    if (state.mode === 'command-menu') {
+      commandMenuIndex = Math.max(commandMenuIndex - 1, 0);
+      renderCommandMenu();
+      return;
+    }
     if (state.mode === 'linear') {
       if (linearIssues.length > 0 && linearSelectedIndex > 0) {
         linearSelectedIndex--;
@@ -1179,6 +1432,10 @@ export function createApp() {
   });
 
   screen.key(['enter'], () => {
+    if (state.mode === 'command-menu') {
+      executeCommandMenuItem();
+      return;
+    }
     if (state.mode === 'linear') {
       if (linearIssues.length === 0) return;
       // If any checked, claim all checked; otherwise claim the cursor issue
@@ -1199,27 +1456,7 @@ export function createApp() {
     }
   });
 
-  screen.key(['c'], () => {
-    if (state.mode !== 'normal') return;
-    handlers['create']?.();
-  });
-
-  screen.key(['d'], () => {
-    if (state.mode === 'queue-viewer') {
-      const vm = state.vms[state.sidebarSelectedIndex];
-      if (!vm) return;
-      handlers['queue-remove']?.(queueViewerSelectedIndex);
-      renderQueueViewer(vm);
-      screen.render();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    if (state.vms.length > 0) {
-      const vm = state.vms[state.sidebarSelectedIndex];
-      if (vm) showConfirmDelete(vm);
-    }
-  });
-
+  // Mode-specific key handlers (confirm dialogs, overlay navigation)
   screen.key(['y'], () => {
     if (state.mode === 'confirm-delete') {
       hideConfirmDelete();
@@ -1243,100 +1480,14 @@ export function createApp() {
     }
   });
 
-  screen.key(['p'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    showPromptInput(vm);
-  });
-
-  screen.key(['b'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    showBroadcastInput();
-  });
-
-  screen.key(['S-q'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    showQueueInput(vm);
-  });
-
-  screen.key(['S-b'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    showBroadcastQueueInput();
-  });
-
-  screen.key(['f'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    showRalphIterationsInput(vm);
-  });
-
-  screen.key(['S-c'], () => {
-    if (state.mode !== 'normal') return;
-    showBulkCreate();
-  });
-
-  screen.key(['S-d'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    showConfirmDeleteAll(state.vms.length);
-  });
-
-  screen.key(['a'], () => {
-    if (state.mode !== 'normal') return;
-    const nextIdx = findNextAttentionIndex(state.vms, state.sidebarSelectedIndex);
-    if (nextIdx >= 0) {
-      state.sidebarSelectedIndex = nextIdx;
-      render();
-      handlers['selection-changed']?.();
+  screen.key(['d'], () => {
+    if (state.mode === 'queue-viewer') {
+      const vm = state.vms[state.sidebarSelectedIndex];
+      if (!vm) return;
+      handlers['queue-remove']?.(queueViewerSelectedIndex);
+      renderQueueViewer(vm);
+      screen.render();
     }
-  });
-
-  screen.key(['r'], () => {
-    if (state.mode === 'linear') {
-      handlers['linear-refresh']?.();
-      return;
-    }
-    if (state.mode === 'pr-chain') {
-      handlers['pr-chain-refresh']?.();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm || vm.provisioningStatus !== 'done') return;
-    handlers['reprovision']?.();
-  });
-
-  screen.key(['S-r'], () => {
-    if (state.mode !== 'normal') return;
-    const provisioned = state.vms.filter(vm => vm.provisioningStatus === 'done');
-    if (provisioned.length === 0) return;
-    showConfirmReprovisionAll(provisioned.length);
-  });
-
-  screen.key(['l'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    showRename(vm);
-  });
-
-  screen.key(['x'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    handlers['stop-agent']?.();
   });
 
   screen.key(['S-x'], () => {
@@ -1347,123 +1498,28 @@ export function createApp() {
       queueViewerSelectedIndex = 0;
       renderQueueViewer(vm);
       screen.render();
-      return;
     }
   });
 
-  screen.key(['t'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm || vm.provisioningStatus !== 'failed') return;
-    handlers['retry-provision']?.();
-  });
-
-  screen.key(['o'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    handlers['export-log']?.();
-  });
-
-  screen.key(['S-e'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm || !vm.lastError) return;
-    handlers['copy-error']?.();
-  });
-
-  screen.key(['v'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    showQueueViewer(vm);
-  });
-
-  screen.key(['w'], () => {
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm || vm.provisioningStatus !== 'done') return;
-    handlers['open-app']?.();
-  });
-
-  screen.key(['g'], () => {
-    if (state.mode === 'pr-chain') {
-      hidePRChain();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    if (state.vms.length === 0) return;
-    showPRChain();
-  });
-
-  screen.key(['S-l'], () => {
+  screen.key(['r'], () => {
     if (state.mode === 'linear') {
-      hideLinear();
-      return;
+      handlers['linear-refresh']?.();
+    } else if (state.mode === 'pr-chain') {
+      handlers['pr-chain-refresh']?.();
     }
-    if (state.mode !== 'normal') return;
-    showLinear();
   });
 
   screen.key(['s'], () => {
     if (state.mode === 'pr-chain') {
       handlers['pr-chain-sync']?.();
-      return;
     }
-    if (state.mode !== 'normal') return;
-    state.sortMode = nextSortMode(state.sortMode);
-    render();
-  });
-
-  screen.key(['i'], () => {
-    if (state.mode === 'dashboard') {
-      hideDashboard();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    showDashboard();
-  });
-
-  screen.key(['S-g'], () => {
-    if (state.mode === 'grid') {
-      handlers['grid-close']?.();
-      state.mode = 'normal';
-      statusBar.setContent(normalStatusText);
-      screen.render();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    state.mode = 'grid';
-    statusBar.setContent(' G:close grid  (grid shows live agent terminals)');
-    screen.render();
-    handlers['grid-open']?.();
-  });
-
-  screen.key(['tab'], () => {
-    if (state.mode !== 'normal') return;
-    handlers['toggle-sidebar']?.();
-  });
-
-  screen.key(['?'], () => {
-    if (state.mode === 'help') {
-      hideHelp();
-      return;
-    }
-    if (state.mode !== 'normal') return;
-    showHelp();
-  });
-
-  screen.key(['/'], () => {
-    if (state.mode !== 'normal') return;
-    showSearch();
   });
 
   screen.key(['escape'], () => {
+    if (state.mode === 'command-menu') {
+      hideCommandMenu();
+      return;
+    }
     if (state.mode === 'help') {
       hideHelp();
     }
