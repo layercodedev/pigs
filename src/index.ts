@@ -27,6 +27,9 @@ import {
   focusRightPane,
   rightPaneExists,
   zoomPane,
+  createGridWindow,
+  killGridWindow,
+  switchToControlPane,
 } from './tmux.ts';
 
 async function main() {
@@ -749,6 +752,32 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
+  // Grid open handler - create tmux grid of all agent terminals
+  app.onKey('grid-open', () => {
+    // Only include branches that have a tmux window (i.e., running a task)
+    const activeBranches = state.vms.filter(vm => vm.taskStartedAt != null);
+    if (activeBranches.length === 0) {
+      app.setStatusMessage('No active agent terminals to show in grid');
+      state.mode = 'normal';
+      app.resetStatus();
+      return;
+    }
+    try {
+      killGridWindow(); // Clean up any existing grid
+      createGridWindow(activeBranches);
+    } catch (err: any) {
+      app.setStatusMessage(`Grid failed: ${err.message}`);
+      state.mode = 'normal';
+      setTimeout(() => app.resetStatus(), 3000);
+    }
+  });
+
+  // Grid close handler - kill grid window, return to control pane
+  app.onKey('grid-close', () => {
+    killGridWindow();
+    switchToControlPane();
+  });
+
   // Prompt submit handler - run claude -p in worktree
   app.onKey('prompt-submit', async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
@@ -963,6 +992,7 @@ async function main() {
   app.onKey('quit', async () => {
     stopMonitor();
     clearAllQueues();
+    killGridWindow();
     killSession();
   });
 

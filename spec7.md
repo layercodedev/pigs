@@ -6,6 +6,6 @@
 
 ~~Add 'open app' command which starts the dev server and opens in browser. Each worktree should auto find an open port. URL should be pretend [localhost](http://localhost) subdomain so you can identify branch in browser: branchname-foldername.localhost:port~~ DONE
 
-Add grid feature which shows all agent terminals in grid at same time.
+~~Add grid feature which shows all agent terminals in grid at same time.~~ DONE
 
 Claude complete notification could probably be done via tmux terminal notifications or claude hooks, instead of the touch file method now.

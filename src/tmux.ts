@@ -321,6 +321,95 @@ export function isZoomed(
 }
 
 /**
+ * Create a grid window that tiles multiple branch terminals using tmux panes.
+ * Creates a new window, then splits it into panes — one per branch.
+ * Each pane runs `tail -f` on the tmux capture output or shows the branch's tmux window.
+ */
+export function createGridWindow(
+  branches: { name: string; worktreePath: string; displayLabel?: string }[],
+  sessionName: string = SESSION_NAME,
+): void {
+  if (branches.length === 0) return;
+
+  // Create the grid window with the first branch's pane
+  const firstBranch = branches[0];
+  const firstCmd = `tmux pipe-pane -t ${sessionName}:${shellEscape(firstBranch.name)} 2>/dev/null; tmux capture-pane -t ${sessionName}:${shellEscape(firstBranch.name)} -p 2>/dev/null || echo '(no output)'; echo '--- ${firstBranch.displayLabel ?? firstBranch.name} ---'; watch -t -n 1 "tmux capture-pane -t ${sessionName}:${shellEscape(firstBranch.name)} -p 2>/dev/null || echo '(no output)'"`;
+  execSync(
+    `tmux new-window -t ${sessionName} -n pigs-grid ${shellEscape(firstCmd)}`,
+    { stdio: 'pipe' },
+  );
+
+  // Split for remaining branches
+  for (let i = 1; i < branches.length; i++) {
+    const branch = branches[i];
+    const cmd = `watch -t -n 1 "tmux capture-pane -t ${sessionName}:${shellEscape(branch.name)} -p 2>/dev/null || echo '(no output)'"`;
+    // Alternate between horizontal and vertical splits for a grid layout
+    execSync(
+      `tmux split-window -t ${sessionName}:pigs-grid ${shellEscape(cmd)}`,
+      { stdio: 'pipe' },
+    );
+    // Re-tile after each split so panes stay evenly distributed
+    execSync(
+      `tmux select-layout -t ${sessionName}:pigs-grid tiled`,
+      { stdio: 'pipe' },
+    );
+  }
+
+  // Add border labels to each pane showing the branch name
+  try {
+    const paneIds = execSync(
+      `tmux list-panes -t ${sessionName}:pigs-grid -F '#{pane_index}'`,
+      { stdio: 'pipe', encoding: 'utf-8' },
+    ).trim().split('\n');
+    for (let i = 0; i < Math.min(paneIds.length, branches.length); i++) {
+      const label = branches[i].displayLabel ?? branches[i].name;
+      const truncLabel = label.length > 30 ? label.slice(0, 27) + '...' : label;
+      execSync(
+        `tmux select-pane -t ${sessionName}:pigs-grid.${paneIds[i]} -T ${shellEscape(truncLabel)}`,
+        { stdio: 'pipe' },
+      );
+    }
+    // Enable pane border labels
+    execSync(
+      `tmux set-option -t ${sessionName}:pigs-grid pane-border-status top`,
+      { stdio: 'pipe' },
+    );
+    execSync(
+      `tmux set-option -t ${sessionName}:pigs-grid pane-border-format ' #{pane_title} '`,
+      { stdio: 'pipe' },
+    );
+  } catch {
+    // Pane titles are a nice-to-have, not critical
+  }
+
+  // Focus the grid window
+  execSync(`tmux select-window -t ${sessionName}:pigs-grid`, { stdio: 'pipe' });
+}
+
+/**
+ * Kill the grid window if it exists.
+ */
+export function killGridWindow(sessionName: string = SESSION_NAME): void {
+  try {
+    execSync(`tmux kill-window -t ${sessionName}:pigs-grid`, { stdio: 'pipe' });
+  } catch {
+    // Window may not exist
+  }
+}
+
+/**
+ * Check if the grid window exists.
+ */
+export function gridWindowExists(sessionName: string = SESSION_NAME): boolean {
+  const result = spawnSync(
+    'tmux',
+    ['display-message', '-t', `${sessionName}:pigs-grid`, '-p', '#{window_id}'],
+    { stdio: 'pipe' },
+  );
+  return result.status === 0;
+}
+
+/**
  * Escape a string for safe use in shell commands.
  */
 function shellEscape(s: string): string {

@@ -69,3 +69,28 @@ Changes:
 - port-finder.test.ts: NEW - 3 tests for port finding (basic, skips occupied, first available)
 
 All 221 unit tests pass. TypeScript type check passes.
+
+## 2026-02-10: Task 5 - Add grid feature
+
+Added a grid view feature (keybinding: `G`) that shows all active agent terminals
+tiled in a tmux grid simultaneously. This uses tmux's native pane tiling to create
+a real multi-terminal view where users can see all running agents at once.
+
+How it works:
+- Pressing `G` creates a new tmux window ("pigs-grid") with one pane per active branch
+- Each pane uses `watch` to continuously capture the output of the branch's tmux window
+- Panes are automatically tiled using tmux's `tiled` layout for even distribution
+- Each pane gets a border title showing the branch name for identification
+- Pressing `G`, `q`, or `Escape` closes the grid and returns to the control pane
+- Only branches with active tasks (taskStartedAt set) are included in the grid
+
+Changes:
+- tmux.ts: Added `createGridWindow()`, `killGridWindow()`, `gridWindowExists()` functions
+  that manage a tmux window with tiled panes showing live output from branch windows
+- types.ts: Added `'grid'` to AppState mode union type
+- tui.ts: Added `G` (shift-g) keybinding for grid toggle, grid mode handling in `q`
+  and `escape` handlers, updated help dialog and status bar text
+- index.ts: Added `grid-open` and `grid-close` handlers, imported new tmux functions,
+  added grid cleanup on quit
+
+All 221 unit tests pass. TypeScript type check passes.

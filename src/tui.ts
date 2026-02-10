@@ -272,7 +272,7 @@ export function createApp() {
     content: '',
   });
 
-  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  w:web  a:attn  g:prs  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
+  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  w:web  a:attn  g:prs  G:grid  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
 
   // Status bar at the bottom
   const statusBar = blessed.box({
@@ -460,7 +460,7 @@ export function createApp() {
     top: 'center',
     left: 'center',
     width: '100%-2',
-    height: 44,
+    height: 45,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -502,6 +502,7 @@ export function createApp() {
       '  {bold}Other{/bold}',
       '  L (shift)     View Linear tasks (Space:select  Enter:claim)',
       '  g             View PR chain for selected branch',
+      '  G (shift)     Toggle grid view (all agent terminals tiled)',
       '  i             Toggle fleet dashboard overview',
       '  s             Cycle sort: default/name/status/attention/elapsed',
       '  /             Search/filter branches in sidebar',
@@ -1044,6 +1045,13 @@ export function createApp() {
       hideDashboard();
       return;
     }
+    if (state.mode === 'grid') {
+      handlers['grid-close']?.();
+      state.mode = 'normal';
+      statusBar.setContent(normalStatusText);
+      screen.render();
+      return;
+    }
     if (state.mode === 'queue-viewer') {
       hideQueueViewer();
       return;
@@ -1421,6 +1429,21 @@ export function createApp() {
     showDashboard();
   });
 
+  screen.key(['S-g'], () => {
+    if (state.mode === 'grid') {
+      handlers['grid-close']?.();
+      state.mode = 'normal';
+      statusBar.setContent(normalStatusText);
+      screen.render();
+      return;
+    }
+    if (state.mode !== 'normal') return;
+    state.mode = 'grid';
+    statusBar.setContent(' G:close grid  (grid shows live agent terminals)');
+    screen.render();
+    handlers['grid-open']?.();
+  });
+
   screen.key(['tab'], () => {
     if (state.mode !== 'normal') return;
     handlers['toggle-sidebar']?.();
@@ -1446,6 +1469,12 @@ export function createApp() {
     }
     if (state.mode === 'dashboard') {
       hideDashboard();
+    }
+    if (state.mode === 'grid') {
+      handlers['grid-close']?.();
+      state.mode = 'normal';
+      statusBar.setContent(normalStatusText);
+      screen.render();
     }
     if (state.mode === 'pr-chain') {
       hidePRChain();
