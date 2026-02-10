@@ -24,6 +24,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.vms).toHaveLength(0);
     expect(state.activeVmIndex).toBe(-1);
@@ -42,6 +44,8 @@ describe('types', () => {
       settings: { claudeMd: '# My instructions' },
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.settings).not.toBeNull();
     expect(state.settings!.claudeMd).toBe('# My instructions');
@@ -124,6 +128,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('prompt');
   });
@@ -137,6 +143,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('broadcast');
   });
@@ -150,6 +158,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('help');
   });
@@ -163,6 +173,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('bulk-create');
   });
@@ -176,6 +188,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('confirm-delete-all');
   });
@@ -189,6 +203,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('confirm-reprovision-all');
   });
@@ -202,6 +218,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('rename');
   });
@@ -264,6 +282,8 @@ describe('types', () => {
       settings: null,
       searchFilter: 'myproject',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('search');
     expect(state.searchFilter).toBe('myproject');
@@ -278,6 +298,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('dashboard');
   });
@@ -293,6 +315,8 @@ describe('types', () => {
         settings: null,
         searchFilter: '',
         sortMode,
+        rightPaneVmName: null,
+        sidebarHidden: false,
       };
       expect(state.sortMode).toBe(sortMode);
     }
@@ -307,6 +331,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('queue');
   });
@@ -320,6 +346,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('broadcast-queue');
   });
@@ -333,6 +361,8 @@ describe('types', () => {
       settings: null,
       searchFilter: '',
       sortMode: 'default',
+      rightPaneVmName: null,
+      sidebarHidden: false,
     };
     expect(state.mode).toBe('queue-viewer');
   });

@@ -4,6 +4,7 @@ import { historyUp, historyDown, resetCursor } from './prompt-history.ts';
 import { getOutput } from './output-buffer.ts';
 import { queueSize, getQueue } from './prompt-queue.ts';
 import { stripAnsi } from './ansi.ts';
+import { zoomPane, isZoomed, focusRightPane, setLeftPaneWidth } from './tmux.ts';
 
 /**
  * Find the index of the next VM that needs attention, starting after currentIndex.
@@ -179,15 +180,17 @@ export function createApp() {
     settings: null,
     searchFilter: '',
     sortMode: 'default',
+    rightPaneVmName: null,
+    sidebarHidden: false,
   };
 
-  // Sidebar: list of VMs on the left
+  // Sidebar: list of VMs on the left (fills entire left pane in tmux split)
   const sidebar = blessed.box({
     parent: screen,
     label: ' VMs ',
     left: 0,
     top: 0,
-    width: 30,
+    width: '100%',
     height: '100%-1',
     border: { type: 'line' },
     style: {
@@ -198,14 +201,15 @@ export function createApp() {
     keys: true,
   });
 
-  // Main view: active VM console area
+  // Main view: hidden — replaced by the live tmux right pane
   const mainView = blessed.box({
     parent: screen,
     label: ' Console ',
-    left: 30,
+    left: 0,
     top: 0,
-    width: '100%-30',
-    height: '100%-1',
+    width: 1,
+    height: 1,
+    hidden: true,
     border: { type: 'line' },
     style: {
       border: { fg: 'green' },
@@ -268,6 +272,8 @@ export function createApp() {
     content: '',
   });
 
+  const normalStatusText = ' c:create  C:bulk  d:del  D:del-all  r:reprov  l:rename  Enter:open  Tab:toggle  p:prompt  b:bcast  f:ralph  Q:queue  B:bq  x:stop  a:attn  m:mnt  g:prs  L:linear  i:dash  s:sort  /:search  ?:help  q:quit';
+
   // Status bar at the bottom
   const statusBar = blessed.box({
     parent: screen,
@@ -276,7 +282,7 @@ export function createApp() {
     width: '100%',
     height: 1,
     style: { bg: 'blue', fg: 'white' },
-    content: ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  p:prompt  b:broadcast  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  i:dashboard  s:sort  /:search  ?:help  q:quit',
+    content: normalStatusText,
   });
 
   // Confirm dialog (hidden by default)
@@ -453,8 +459,8 @@ export function createApp() {
     hidden: true,
     top: 'center',
     left: 'center',
-    width: 60,
-    height: 42,
+    width: '100%-2',
+    height: 44,
     border: { type: 'line' },
     style: {
       border: { fg: 'cyan' },
@@ -468,7 +474,9 @@ export function createApp() {
       '  j / ↓         Move selection down',
       '  k / ↑         Move selection up',
       '  a             Jump to next VM needing attention',
-      '  Enter         Attach to selected VM (opens tmux window)',
+      '  Enter         Open VM in right pane',
+      '  Tab           Toggle sidebar (zoom right pane)',
+      '  Ctrl-b ←/→    Switch focus between panes',
       '',
       '  {bold}VM Management{/bold}',
       '  c             Create a new agent VM',
@@ -505,7 +513,7 @@ export function createApp() {
       '  Ctrl-C        Force quit',
       '',
       '  {bold}Info{/bold}',
-      '  Output preview shown for selected VM (navigate with j/k)',
+      '  Right pane shows active VM terminal (live)',
       '  Elapsed time shown in sidebar when task is running',
       '  Queued prompts [q:N] auto-send when current task finishes',
       '',
@@ -841,8 +849,6 @@ export function createApp() {
     },
   });
 
-  const normalStatusText = ' c:create  C:bulk-create  d:delete  D:delete-all  r:reprov  R:reprov-all  t:retry  l:rename  Enter:attach  p:prompt  b:broadcast  f:ralph  Q:queue  B:bcast-queue  v:view-queue  x:stop  o:export  a:next-attn  m:mount  u:unmount  g:prs  L:linear  i:dashboard  s:sort  /:search  ?:help  q:quit';
-
   function getFilteredVMs(): VM[] {
     return sortVMs(filterVMs(state.vms, state.searchFilter), state.sortMode);
   }
@@ -915,23 +921,7 @@ export function createApp() {
   }
 
   function renderMainView() {
-    if (state.sidebarSelectedIndex >= 0 && state.vms[state.sidebarSelectedIndex]) {
-      const vm = state.vms[state.sidebarSelectedIndex];
-      mainView.setLabel(` Preview: ${vm.displayLabel ?? vm.name} `);
-      mainView.style.border = { fg: 'green' };
-      noVmMessage.hide();
-      previewBox.show();
-      updatePendingAndErrorDisplay(vm);
-    } else {
-      mainView.setLabel(' Console ');
-      mainView.style.border = { fg: 'green' };
-      noVmMessage.show();
-      previewBox.hide();
-      pendingActionDisplay.hide();
-      errorDisplay.hide();
-      previewBox.top = 0;
-    }
-    screen.render();
+    // No-op: main view is replaced by the live tmux right pane
   }
 
   function updatePendingAndErrorDisplay(vm: VM) {
@@ -1435,6 +1425,11 @@ export function createApp() {
     showDashboard();
   });
 
+  screen.key(['tab'], () => {
+    if (state.mode !== 'normal') return;
+    handlers['toggle-sidebar']?.();
+  });
+
   screen.key(['?'], () => {
     if (state.mode === 'help') {
       hideHelp();
@@ -1470,8 +1465,23 @@ export function createApp() {
     }
   });
 
-  // Handle screen resize
+  // Handle screen resize — maintain left pane width and track zoom state
   screen.on('resize', () => {
+    if (state.mode === 'normal') {
+      try {
+        if (!isZoomed('0.0')) {
+          setLeftPaneWidth(34);
+        }
+      } catch {}
+      // If sidebar was hidden (right pane zoomed) and user unzoomed via Ctrl-b z
+      if (state.sidebarHidden) {
+        try {
+          if (!isZoomed('0.1')) {
+            state.sidebarHidden = false;
+          }
+        } catch {}
+      }
+    }
     render();
   });
 
@@ -1505,6 +1515,7 @@ export function createApp() {
 
   function showHelp() {
     state.mode = 'help';
+    try { zoomPane('0.0'); } catch {}
     helpDialog.show();
     helpDialog.focus();
     screen.render();
@@ -1513,6 +1524,7 @@ export function createApp() {
   function hideHelp() {
     state.mode = 'normal';
     helpDialog.hide();
+    try { if (isZoomed('0.0')) zoomPane('0.0'); } catch {}
     screen.render();
   }
 
@@ -1728,6 +1740,7 @@ export function createApp() {
 
   function showPRChain() {
     state.mode = 'pr-chain';
+    try { zoomPane('0.0'); } catch {}
     prChainOverlay.setContent('\n  {yellow-fg}Fetching PR data...{/yellow-fg}');
     prChainOverlay.setLabel(' PR Chain ');
     prChainOverlay.show();
@@ -1740,6 +1753,7 @@ export function createApp() {
   function hidePRChain() {
     state.mode = 'normal';
     prChainOverlay.hide();
+    try { if (isZoomed('0.0')) zoomPane('0.0'); } catch {}
     statusBar.setContent(normalStatusText);
     render();
   }
@@ -1755,6 +1769,7 @@ export function createApp() {
     state.mode = 'linear';
     linearSelectedIndex = 0;
     linearCheckedIds = new Set();
+    try { zoomPane('0.0'); } catch {}
     linearOverlay.setContent('\n  {yellow-fg}Fetching Linear tasks...{/yellow-fg}');
     linearOverlay.setLabel(' Linear Tasks ');
     linearOverlay.show();
@@ -1767,6 +1782,7 @@ export function createApp() {
   function hideLinear() {
     state.mode = 'normal';
     linearOverlay.hide();
+    try { if (isZoomed('0.0')) zoomPane('0.0'); } catch {}
     statusBar.setContent(normalStatusText);
     render();
   }
@@ -1780,6 +1796,7 @@ export function createApp() {
 
   function showDashboard() {
     state.mode = 'dashboard';
+    try { zoomPane('0.0'); } catch {}
     renderDashboard();
     dashboardOverlay.show();
     dashboardOverlay.focus();
@@ -1790,6 +1807,7 @@ export function createApp() {
   function hideDashboard() {
     state.mode = 'normal';
     dashboardOverlay.hide();
+    try { if (isZoomed('0.0')) zoomPane('0.0'); } catch {}
     statusBar.setContent(normalStatusText);
     render();
   }
@@ -2117,12 +2135,10 @@ export function createApp() {
   });
 
   /**
-   * Show a read-only preview of output lines in the preview box.
+   * Show preview — no-op since the right pane is the live preview.
    */
-  function showPreview(lines: string[]) {
-    previewBox.setContent(stripAnsi(lines.join('\n')));
-    previewBox.setScrollPerc(100);
-    screen.render();
+  function showPreview(_lines: string[]) {
+    // No-op: the live tmux right pane replaces the preview
   }
 
   return {

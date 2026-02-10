@@ -28,4 +28,6 @@ export interface AppState {
   searchFilter: string;
   sortMode: SortMode;
   settings: PigsSettings | null;
+  rightPaneVmName: string | null;
+  sidebarHidden: boolean;
 }

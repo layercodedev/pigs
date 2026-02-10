@@ -22,29 +22,32 @@ import {
   createSession,
   attachSession,
   createWindow,
-  switchToWindow,
-  switchToControlPane,
   killWindow,
-  listWindows,
-  capturePane,
-  renameWindow as tmuxRenameWindow,
   getSessionName,
+  createRightPane,
+  setLeftPaneWidth,
+  respawnRightPane,
+  focusRightPane,
+  rightPaneExists,
+  zoomPane,
+  focusLeftPane,
 } from './tmux.ts';
 import { execFile } from 'node:child_process';
 import type { SpritesClient } from '@fly/sprites';
 
 async function main() {
   // Ensure we're inside a tmux session.
-  // If not, create one and attach to it (replaces current process).
+  // If not, create one running pigs and attach to it.
   if (!insideTmux()) {
     const name = getSessionName();
     if (!sessionExists(name)) {
-      createSession(name);
+      // Re-launch pigs as the initial command inside the tmux session
+      const cmd = process.argv.map(a => `'${a.replace(/'/g, "'\\''")}'`).join(' ');
+      createSession(name, cmd);
     }
     attachSession(name);
-    // attachSession replaces the process, so we should not reach here.
-    // If we do, it means attach failed.
-    process.exit(1);
+    // attachSession blocks until the user detaches from tmux.
+    process.exit(0);
   }
 
   let client: SpritesClient;
@@ -83,18 +86,10 @@ async function main() {
   app.render();
   app.resetStatus();
 
-  // Show preview for initially selected VM
-  if (state.vms.length > 0) {
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (vm) {
-      const captured = capturePane(vm.name);
-      if (captured) {
-        app.showPreview(captured.split('\n'));
-      } else {
-        app.showPreview(getOutput(vm.name));
-      }
-    }
-  }
+  // Create the right pane and set sidebar width
+  createRightPane();
+  setLeftPaneWidth(34);
+  focusLeftPane();
 
   /**
    * Process prompt queues: when a VM finishes a task and has queued prompts,
@@ -112,8 +107,14 @@ async function main() {
         vm.taskStartedAt = Date.now();
         const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
         const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
-        killWindow(vm.name);
-        createWindow(vm.name, command);
+
+        if (vm.name === state.rightPaneVmName) {
+          ensureRightPane();
+          respawnRightPane(command);
+        } else {
+          killWindow(vm.name);
+          createWindow(vm.name, command);
+        }
         app.setStatusMessage(`Auto-sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
         app.render();
         setTimeout(() => app.resetStatus(), 3000);
@@ -128,36 +129,42 @@ async function main() {
   });
 
 
-  // Selection changed handler - show preview of selected VM's captured output
+  // Selection changed handler — no-op for preview (right pane is live)
   app.onKey('selection-changed', () => {
-    if (state.mode !== 'normal') return;
-    const vm = state.vms[state.sidebarSelectedIndex];
-    if (!vm) return;
-    // Capture current pane output from tmux window if it exists
-    const captured = capturePane(vm.name);
-    if (captured) {
-      app.showPreview(captured.split('\n'));
-    } else {
-      app.showPreview(getOutput(vm.name));
-    }
+    // Preview is handled by the live tmux right pane
+  });
+
+  // Toggle sidebar handler (Tab key) — zoom right pane to hide sidebar
+  app.onKey('toggle-sidebar', () => {
+    ensureRightPane();
+    try {
+      zoomPane('0.1');
+      state.sidebarHidden = true;
+      focusRightPane();
+    } catch {}
   });
 
   /**
-   * Open a tmux window for a VM running a sprite command.
-   * If a window for this VM already exists, just switch to it.
+   * Ensure the right pane exists. If it was closed, recreate it.
    */
-  function openVmWindow(vmName: string, command: string) {
-    const windowName = vmName;
-    const existingWindows = listWindows();
-    if (existingWindows.includes(windowName)) {
-      switchToWindow(windowName);
-    } else {
-      createWindow(windowName, command);
-      switchToWindow(windowName);
+  function ensureRightPane() {
+    if (!rightPaneExists()) {
+      createRightPane();
+      setLeftPaneWidth(34);
     }
   }
 
-  // Activate VM handler - open tmux window with sprite console
+  /**
+   * Open a VM command in the right pane.
+   */
+  function openVmInRightPane(vmName: string, command: string) {
+    ensureRightPane();
+    respawnRightPane(command);
+    state.rightPaneVmName = vmName;
+    focusRightPane();
+  }
+
+  // Activate VM handler - open VM in right pane
   app.onKey('activate', async () => {
     const vm = state.vms[state.activeVmIndex];
     if (!vm) return;
@@ -166,8 +173,8 @@ async function main() {
     clearAttention(vm);
     app.render();
 
-    // Open a tmux window running sprite exec -tty bash on this VM
-    openVmWindow(vm.name, `sprite -s ${vm.name} exec -tty bash`);
+    // Open VM in the right pane
+    openVmInRightPane(vm.name, `sprite -s ${vm.name} exec -tty bash`);
   });
 
   // Create VM handler
@@ -301,6 +308,11 @@ async function main() {
       destroyConsole(vm.name);
       clearOutput(vm.name);
       clearQueue(vm.name);
+      // Reset right pane if this was the displayed VM
+      if (state.rightPaneVmName === vm.name) {
+        state.rightPaneVmName = null;
+        try { ensureRightPane(); respawnRightPane('bash'); } catch {}
+      }
       await deleteVM(client, vm.name);
       state.vms.splice(state.sidebarSelectedIndex, 1);
       if (state.sidebarSelectedIndex >= state.vms.length) {
@@ -360,6 +372,10 @@ async function main() {
     state.vms = state.vms.filter((vm) => !deletedNames.has(vm.name));
     state.sidebarSelectedIndex = 0;
     state.activeVmIndex = state.vms.length > 0 ? 0 : -1;
+
+    // Reset right pane
+    state.rightPaneVmName = null;
+    try { ensureRightPane(); respawnRightPane('bash'); } catch {}
 
     const failMsg = failed > 0 ? ` (${failed} failed)` : '';
     app.setStatusMessage(`Deleted ${deletedNames.size} VMs${failMsg}`);
@@ -461,6 +477,11 @@ async function main() {
     if (!vm) return;
 
     killWindow(vm.name);
+    // If this VM was in the right pane, reset it
+    if (state.rightPaneVmName === vm.name) {
+      try { ensureRightPane(); respawnRightPane('bash'); } catch {}
+      state.rightPaneVmName = null;
+    }
     vm.taskStartedAt = undefined;
     app.setStatusMessage(`Stopped ${vm.displayLabel ?? vm.name}`);
     app.render();
@@ -639,8 +660,7 @@ async function main() {
       const escapedPrompt = rebasePrompt.replace(/'/g, "'\\''");
       const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
       killWindow(vm.name);
-      createWindow(vm.name, command);
-      switchToWindow(vm.name);
+      openVmInRightPane(vm.name, command);
     } catch (err: any) {
       app.setStatusMessage(`Sync failed: ${err.message}`);
       setTimeout(() => app.resetStatus(), 3000);
@@ -814,7 +834,7 @@ async function main() {
     setTimeout(() => app.resetStatus(), 3000);
   });
 
-  // Prompt submit handler - run claude -p on the VM via tmux window
+  // Prompt submit handler - run claude -p on the VM via right pane
   app.onKey('prompt-submit', async (prompt: string) => {
     const vm = state.vms[state.sidebarSelectedIndex];
     if (!vm) return;
@@ -835,13 +855,11 @@ async function main() {
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
     const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
 
-    // Kill existing window for this VM if any (fresh prompt = fresh window)
     killWindow(vm.name);
-    createWindow(vm.name, command);
-    switchToWindow(vm.name);
+    openVmInRightPane(vm.name, command);
   });
 
-  // Broadcast prompt handler - send claude -p to all provisioned VMs via tmux windows
+  // Broadcast prompt handler - send claude -p to all provisioned VMs
   app.onKey('broadcast-submit', async (prompt: string) => {
     await addToHistory(prompt);
 
@@ -859,8 +877,13 @@ async function main() {
     for (const vm of targets) {
       vm.taskStartedAt = Date.now();
       const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
-      killWindow(vm.name);
-      createWindow(vm.name, command);
+      if (vm.name === state.rightPaneVmName) {
+        ensureRightPane();
+        respawnRightPane(command);
+      } else {
+        killWindow(vm.name);
+        createWindow(vm.name, command);
+      }
     }
 
     app.setStatusMessage(`Broadcast sent to ${targets.length} agent(s)`);
@@ -897,8 +920,14 @@ async function main() {
       vm.taskStartedAt = Date.now();
       const escapedPrompt = nextPrompt.replace(/'/g, "'\\''");
       const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
-      killWindow(vm.name);
-      createWindow(vm.name, command);
+
+      if (vm.name === state.rightPaneVmName) {
+        ensureRightPane();
+        respawnRightPane(command);
+      } else {
+        killWindow(vm.name);
+        createWindow(vm.name, command);
+      }
       app.setStatusMessage(`Sent queued prompt to ${vm.displayLabel ?? vm.name} (${queueSize(vm.name)} remaining)`);
       app.render();
       setTimeout(() => app.resetStatus(), 3000);
@@ -922,13 +951,18 @@ async function main() {
     const escapedPrompt = prompt.replace(/'/g, "'\\''");
 
     for (const vm of targets) {
-      // If VM is idle, send immediately via tmux window
+      // If VM is idle, send immediately
       if (vm.needsAttention || !vm.taskStartedAt) {
         if (vm.needsAttention) clearAttention(vm);
         vm.taskStartedAt = Date.now();
         const command = `sprite -s ${vm.name} exec -tty claude -p '${escapedPrompt}'`;
-        killWindow(vm.name);
-        createWindow(vm.name, command);
+        if (vm.name === state.rightPaneVmName) {
+          ensureRightPane();
+          respawnRightPane(command);
+        } else {
+          killWindow(vm.name);
+          createWindow(vm.name, command);
+        }
         sent++;
       } else {
         enqueue(vm.name, prompt);
@@ -985,8 +1019,7 @@ async function main() {
     // Run the ralph script inside a sprite exec -tty session
     const command = `sprite -s ${vm.name} exec -tty bash -c '${ralphScript.replace(/'/g, "'\\''")}'`;
     killWindow(vm.name);
-    createWindow(vm.name, command);
-    switchToWindow(vm.name);
+    openVmInRightPane(vm.name, command);
   });
 
   // Unmount VM filesystem handler

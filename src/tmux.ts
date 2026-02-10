@@ -26,10 +26,11 @@ export function sessionExists(name: string = SESSION_NAME): boolean {
 
 /**
  * Create a new tmux session (detached) with the control pane as window 0.
- * If we're already inside tmux, creates a new session in the background.
+ * If command is provided, it runs as the initial program in the session.
  */
-export function createSession(name: string = SESSION_NAME): void {
-  execSync(`tmux new-session -d -s ${name} -x $(tput cols) -y $(tput lines)`, {
+export function createSession(name: string = SESSION_NAME, command?: string): void {
+  const cmdPart = command ? ` ${command}` : '';
+  execSync(`tmux new-session -d -s ${name} -x $(tput cols) -y $(tput lines)${cmdPart}`, {
     stdio: 'pipe',
   });
 }
@@ -203,6 +204,119 @@ export function getActiveWindow(sessionName: string = SESSION_NAME): string {
     ).trim();
   } catch {
     return '';
+  }
+}
+
+/**
+ * Create a right pane in window 0 by splitting horizontally.
+ */
+export function createRightPane(
+  command?: string,
+  sessionName: string = SESSION_NAME,
+): void {
+  const cmdPart = command ? ` ${shellEscape(command)}` : '';
+  execSync(`tmux split-window -h -t ${sessionName}:0${cmdPart}`, { stdio: 'pipe' });
+}
+
+/**
+ * Set the width of the left pane (pane 0.0) in columns.
+ */
+export function setLeftPaneWidth(
+  cols: number,
+  sessionName: string = SESSION_NAME,
+): void {
+  execSync(`tmux resize-pane -t ${sessionName}:0.0 -x ${cols}`, { stdio: 'pipe' });
+}
+
+/**
+ * Respawn the right pane (0.1) with a new command, killing the current process.
+ */
+export function respawnRightPane(
+  command: string,
+  sessionName: string = SESSION_NAME,
+): void {
+  execSync(
+    `tmux respawn-pane -k -t ${sessionName}:0.1 ${shellEscape(command)}`,
+    { stdio: 'pipe' },
+  );
+}
+
+/**
+ * Capture the visible contents of the right pane (0.1).
+ */
+export function captureRightPane(sessionName: string = SESSION_NAME): string {
+  try {
+    return execSync(`tmux capture-pane -t ${sessionName}:0.1 -p`, {
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Focus the right pane (0.1).
+ */
+export function focusRightPane(sessionName: string = SESSION_NAME): void {
+  execSync(`tmux select-pane -t ${sessionName}:0.1`, { stdio: 'pipe' });
+}
+
+/**
+ * Focus the left pane (0.0).
+ */
+export function focusLeftPane(sessionName: string = SESSION_NAME): void {
+  execSync(`tmux select-pane -t ${sessionName}:0.0`, { stdio: 'pipe' });
+}
+
+/**
+ * Send keystrokes to the right pane (0.1).
+ */
+export function sendKeysToRightPane(
+  keys: string,
+  sessionName: string = SESSION_NAME,
+): void {
+  execSync(
+    `tmux send-keys -t ${sessionName}:0.1 ${shellEscape(keys)}`,
+    { stdio: 'pipe' },
+  );
+}
+
+/**
+ * Check if the right pane (0.1) exists.
+ */
+export function rightPaneExists(sessionName: string = SESSION_NAME): boolean {
+  const result = spawnSync('tmux', ['display-message', '-t', `${sessionName}:0.1`, '-p', '#{pane_id}'], {
+    stdio: 'pipe',
+  });
+  return result.status === 0;
+}
+
+/**
+ * Toggle zoom on a pane.
+ */
+export function zoomPane(
+  paneTarget: string,
+  sessionName: string = SESSION_NAME,
+): void {
+  execSync(`tmux resize-pane -Z -t ${sessionName}:${paneTarget}`, { stdio: 'pipe' });
+}
+
+/**
+ * Check if a pane is currently zoomed.
+ */
+export function isZoomed(
+  paneTarget: string,
+  sessionName: string = SESSION_NAME,
+): boolean {
+  try {
+    const result = execSync(
+      `tmux display-message -t ${sessionName}:${paneTarget} -p '#{window_zoomed_flag}'`,
+      { stdio: 'pipe', encoding: 'utf-8' },
+    );
+    return result.trim() === '1';
+  } catch {
+    return false;
   }
 }
 
