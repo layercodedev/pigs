@@ -33,3 +33,18 @@ Changes:
   each subsequent branch builds on the previous one.
 
 All 218 unit tests pass. TypeScript type check passes.
+
+## 2026-02-10: Task 3 - Ensure create from linear still works
+
+Updated the Linear task agent command to use `docker sandbox run claude` instead of
+`claude -p`. When a user claims a Linear task, the agent command is now:
+`docker sandbox run claude "Do linear task IDENTIFIER"` — Claude will use its Linear
+MCP to fetch the task details and start work autonomously.
+
+Changes:
+- index.ts: Changed the linear-claim handler (line ~672) to use
+  `docker sandbox run claude "..."` instead of `cd ... && claude -p '...'`.
+  Also updated string escaping from single-quote to double-quote to match
+  the new command format.
+
+All 218 unit tests pass. TypeScript type check passes.

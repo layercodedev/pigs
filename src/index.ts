@@ -665,11 +665,11 @@ async function main() {
           return { ok: false, identifier: issue.identifier };
         }
 
-        // Send the task as a prompt - per spec, use docker sandbox run claude
+        // Send the task as a prompt via docker sandbox
         vm.taskStartedAt = Date.now();
         const prompt = `Do linear task ${issue.identifier}`;
-        const escapedPrompt = prompt.replace(/'/g, "'\\''");
-        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && claude -p '${escapedPrompt}'`;
+        const escapedPrompt = prompt.replace(/"/g, '\\"');
+        const command = `cd '${vm.worktreePath.replace(/'/g, "'\\''")}' && docker sandbox run claude "${escapedPrompt}"`;
         killWindow(vm.name);
         createWindow(vm.name, command);
 

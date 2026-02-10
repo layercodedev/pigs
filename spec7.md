@@ -2,7 +2,7 @@
 
 ~~Ensure chained PRs functionally still works.~~ DONE
 
-Ensure create from linear still works. The agent command should be `docker sandbox run claude "Do linear task ID"` (no need to include linear task description in prompt, as Claude will use its linear MCP to fetch it and start work). 
+~~Ensure create from linear still works. The agent command should be `docker sandbox run claude "Do linear task ID"` (no need to include linear task description in prompt, as Claude will use its linear MCP to fetch it and start work).~~ DONE
 
 Add ‘open app’ command which starts the dev server and opens in browser. Each worktree should auto find an open port. URL should be pretend [localhost](http://localhost) subdomain so you can identify branch in browser: branchname-foldername.localhost:port
 
