@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process';
-import { existsSync, copyFileSync, mkdirSync } from 'node:fs';
+import { existsSync, copyFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
 import type { Branch, PigsSettings } from './types.ts';
 
@@ -79,7 +79,7 @@ export function createBranch(repoRoot: string, branchName: string, settings?: Pi
   });
 
   // Copy config files that the app needs
-  copyConfigFiles(repoRoot, worktreePath, settings);
+  const copiedFiles = copyConfigFiles(repoRoot, worktreePath, settings);
 
   return {
     name: branchName,
@@ -89,13 +89,30 @@ export function createBranch(repoRoot: string, branchName: string, settings?: Pi
     needsAttention: false,
     provisioningStatus: 'done',
     displayLabel: branchName,
+    copiedFiles,
   };
 }
 
 /**
- * Copy config files (like .dev.vars) from the main repo to a worktree.
+ * Recursively copy a directory from src to dest.
  */
-export function copyConfigFiles(repoRoot: string, worktreePath: string, settings?: PigsSettings): void {
+function copyDirRecursive(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  for (const entry of readdirSync(src)) {
+    const srcPath = join(src, entry);
+    const destPath = join(dest, entry);
+    if (statSync(srcPath).isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Copy config files (like .dev.vars) and the .claude directory from the main repo to a worktree.
+ */
+export function copyConfigFiles(repoRoot: string, worktreePath: string, settings?: PigsSettings): string[] {
   const filesToCopy = [
     '.dev.vars',
     '.env',
@@ -103,6 +120,7 @@ export function copyConfigFiles(repoRoot: string, worktreePath: string, settings
     ...(settings?.copyFiles ?? []),
   ];
 
+  const copied: string[] = [];
   for (const file of filesToCopy) {
     const src = join(repoRoot, file);
     const dest = join(worktreePath, file);
@@ -110,8 +128,18 @@ export function copyConfigFiles(repoRoot: string, worktreePath: string, settings
       // Ensure destination directory exists
       mkdirSync(dirname(dest), { recursive: true });
       copyFileSync(src, dest);
+      copied.push(file);
     }
   }
+
+  // Copy .claude directory (commands, rules, skills, settings, etc.)
+  const claudeDir = join(repoRoot, '.claude');
+  if (existsSync(claudeDir) && statSync(claudeDir).isDirectory()) {
+    copyDirRecursive(claudeDir, join(worktreePath, '.claude'));
+    copied.push('.claude/');
+  }
+
+  return copied;
 }
 
 /**

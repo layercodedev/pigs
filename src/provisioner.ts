@@ -28,10 +28,11 @@ export async function loadSettings(): Promise<PigsSettings> {
 }
 
 /**
- * Provision a worktree: write Claude Code settings/hooks config.
+ * Provision a worktree: merge pigs hooks into the existing .claude/settings.json.
  *
- * For local worktrees, provisioning means writing the hooks config
- * so Claude Code creates a signal file when it finishes.
+ * The .claude directory (commands, rules, skills, settings) is already copied
+ * from the source repo by copyConfigFiles. This function merges in the pigs-specific
+ * hooks (Stop hook for completion detection) and bypassPermissions mode.
  */
 export async function provisionBranch(
   worktreePath: string,
@@ -69,25 +70,36 @@ export async function reprovisionBranch(
 }
 
 /**
- * Write Claude Code config files to a worktree's .claude/ directory.
+ * Merge pigs hooks config into .claude/settings.json, preserving existing settings.
  */
 async function writeConfigFiles(
   worktreePath: string,
-  settings: PigsSettings | undefined,
+  _settings: PigsSettings | undefined,
   log: (msg: string) => void,
 ): Promise<void> {
-  const resolvedSettings = settings ?? await loadSettings();
-
-  // Write CLAUDE.md to the worktree root
-  const claudeMdPath = join(worktreePath, 'CLAUDE.md');
-  await writeFile(claudeMdPath, resolvedSettings.claudeMd, 'utf-8');
-  log(`  ✓ CLAUDE.md`);
-
-  // Write .claude/settings.json with hooks config
   const claudeDir = join(worktreePath, '.claude');
   await mkdir(claudeDir, { recursive: true });
-  const hooksConfig = makeHooksConfig(worktreePath);
   const settingsPath = join(claudeDir, 'settings.json');
-  await writeFile(settingsPath, JSON.stringify(hooksConfig, null, 2), 'utf-8');
-  log(`  ✓ .claude/settings.json`);
+
+  // Read existing settings.json (may have been copied from source repo)
+  let existing: Record<string, any> = {};
+  try {
+    const data = await readFile(settingsPath, 'utf-8');
+    existing = JSON.parse(data);
+  } catch {
+    // No existing file or invalid JSON, start fresh
+  }
+
+  // Merge pigs hooks into existing config
+  const pigsConfig = makeHooksConfig(worktreePath);
+
+  // Merge Stop hook (append pigs stop hook, preserve other hook types)
+  existing.hooks = existing.hooks ?? {};
+  existing.hooks.Stop = [
+    ...(existing.hooks.Stop ?? []),
+    ...pigsConfig.hooks.Stop,
+  ];
+
+  await writeFile(settingsPath, JSON.stringify(existing, null, 2), 'utf-8');
+  log(`  ✓ .claude/settings.json (merged)`);
 }
