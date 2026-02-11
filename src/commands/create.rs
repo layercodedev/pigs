@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 use colored::Colorize;
-use std::fs;
 use std::path::PathBuf;
 
 use crate::commands::open::handle_open;
 use crate::git::{
-    execute_git, extract_repo_name_from_url, get_repo_name, list_worktrees, update_submodules,
+    copy_files_to_worktree, execute_git, extract_repo_name_from_url, get_repo_name, list_worktrees,
+    update_submodules,
 };
 use crate::input::{get_command_arg, smart_confirm};
-use crate::state::{WorktreeInfo, XlaudeState};
+use crate::state::{RepoConfig, WorktreeInfo, XlaudeState};
 use crate::utils::{generate_random_name, sanitize_branch_name};
 
 pub fn handle_create(name: Option<String>, yes: bool, agent_args: Vec<String>) -> Result<()> {
@@ -233,19 +233,14 @@ pub fn handle_create_in_dir_quiet(
         }
     }
 
-    // Copy CLAUDE.local.md if it exists
-    let claude_local_md = if let Some(ref path) = repo_path {
-        path.join("CLAUDE.local.md")
+    // Copy CLAUDE.local.md and any repo-configured extra files
+    let source_root = if let Some(ref path) = repo_path {
+        path.clone()
     } else {
-        PathBuf::from("CLAUDE.local.md")
+        PathBuf::from(std::env::current_dir()?)
     };
-    if claude_local_md.exists() {
-        let target_path = worktree_path.join("CLAUDE.local.md");
-        fs::copy(claude_local_md, &target_path).context("Failed to copy CLAUDE.local.md")?;
-        if !quiet {
-            println!("{} Copied CLAUDE.local.md to worktree", "📄".green());
-        }
-    }
+    let repo_config = RepoConfig::load(&source_root)?;
+    copy_files_to_worktree(&source_root, &worktree_path, &repo_config.copy_files, quiet)?;
 
     // Save state
     let mut state = XlaudeState::load()?;

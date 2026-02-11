@@ -4,7 +4,7 @@ use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorktreeInfo {
@@ -111,6 +111,25 @@ pub fn get_state_path() -> Result<PathBuf> {
 
 fn get_config_path() -> Result<PathBuf> {
     Ok(get_config_dir()?.join("state.json"))
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct RepoConfig {
+    #[serde(default)]
+    pub copy_files: Vec<String>,
+}
+
+impl RepoConfig {
+    pub fn load(repo_root: &Path) -> Result<Self> {
+        let config_path = repo_root.join(".xlaude/state.json");
+        if config_path.exists() {
+            let content = fs::read_to_string(&config_path)
+                .context("Failed to read repo-level .xlaude/state.json")?;
+            Ok(serde_json::from_str(&content)?)
+        } else {
+            Ok(Self::default())
+        }
+    }
 }
 
 /// Resolve the agent command from state with a sensible default.

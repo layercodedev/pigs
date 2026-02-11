@@ -1,4 +1,6 @@
 use anyhow::{Context, Result};
+use colored::Colorize;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -227,6 +229,45 @@ pub fn update_submodules(worktree_path: &Path) -> Result<()> {
         "--recursive",
     ])
     .context("Failed to update submodules")?;
+
+    Ok(())
+}
+
+/// Copy `CLAUDE.local.md` (always, if present) plus any extra files from RepoConfig
+/// into the new worktree.
+pub fn copy_files_to_worktree(
+    source_root: &Path,
+    worktree_path: &Path,
+    extra_files: &[String],
+    quiet: bool,
+) -> Result<()> {
+    // Always copy CLAUDE.local.md if it exists
+    let claude_local = source_root.join("CLAUDE.local.md");
+    if claude_local.exists() {
+        let target = worktree_path.join("CLAUDE.local.md");
+        fs::copy(&claude_local, &target).context("Failed to copy CLAUDE.local.md")?;
+        if !quiet {
+            println!("{} Copied CLAUDE.local.md to worktree", "📄".green());
+        }
+    }
+
+    // Copy extra files from repo config
+    for rel_path in extra_files {
+        let source = source_root.join(rel_path);
+        if !source.exists() {
+            continue;
+        }
+        let target = worktree_path.join(rel_path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory for {rel_path}"))?;
+        }
+        fs::copy(&source, &target)
+            .with_context(|| format!("Failed to copy {rel_path}"))?;
+        if !quiet {
+            println!("{} Copied {} to worktree", "📄".green(), rel_path);
+        }
+    }
 
     Ok(())
 }

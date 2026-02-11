@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -6,9 +5,9 @@ use chrono::Utc;
 use colored::Colorize;
 
 use crate::commands::open::handle_open;
-use crate::git::{execute_git, get_repo_name, update_submodules};
+use crate::git::{copy_files_to_worktree, execute_git, get_repo_name, update_submodules};
 use crate::input::{get_command_arg, smart_confirm};
-use crate::state::{WorktreeInfo, XlaudeState};
+use crate::state::{RepoConfig, WorktreeInfo, XlaudeState};
 use crate::utils::sanitize_branch_name;
 
 pub fn handle_checkout(target: Option<String>) -> Result<()> {
@@ -216,12 +215,8 @@ fn create_worktree(
         }
     }
 
-    let claude_local = repo_root.join("CLAUDE.local.md");
-    if claude_local.exists() {
-        let target = worktree_path.join("CLAUDE.local.md");
-        fs::copy(&claude_local, &target).context("Failed to copy CLAUDE.local.md")?;
-        println!("{} Copied CLAUDE.local.md to worktree", "📄".green());
-    }
+    let repo_config = RepoConfig::load(repo_root)?;
+    copy_files_to_worktree(repo_root, &worktree_path, &repo_config.copy_files, false)?;
 
     state.worktrees.insert(
         key,
