@@ -31,6 +31,9 @@ enum Commands {
     Create {
         /// Name for the worktree (random BIP39 word if not provided)
         name: Option<String>,
+        /// Automatically open the worktree after creation
+        #[arg(short = 'y')]
+        yes: bool,
     },
     /// Checkout a branch or pull request into a worktree
     Checkout {
@@ -102,7 +105,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Create { name } => handle_create(name),
+        Commands::Create { name, yes } => handle_create(name, yes),
         Commands::Checkout { target } => handle_checkout(target),
         Commands::Open { name } => handle_open(name),
         Commands::Delete { name } => handle_delete(name),

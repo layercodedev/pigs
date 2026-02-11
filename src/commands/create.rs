@@ -12,12 +12,12 @@ use crate::input::{get_command_arg, smart_confirm};
 use crate::state::{WorktreeInfo, XlaudeState};
 use crate::utils::{generate_random_name, sanitize_branch_name};
 
-pub fn handle_create(name: Option<String>) -> Result<()> {
-    handle_create_in_dir(name, None)
+pub fn handle_create(name: Option<String>, yes: bool) -> Result<()> {
+    handle_create_in_dir(name, None, yes)
 }
 
-pub fn handle_create_in_dir(name: Option<String>, repo_path: Option<PathBuf>) -> Result<()> {
-    handle_create_in_dir_quiet(name, repo_path, false)?;
+pub fn handle_create_in_dir(name: Option<String>, repo_path: Option<PathBuf>, yes: bool) -> Result<()> {
+    handle_create_in_dir_quiet(name, repo_path, false, yes)?;
     Ok(())
 }
 
@@ -26,6 +26,7 @@ pub fn handle_create_in_dir_quiet(
     name: Option<String>,
     repo_path: Option<PathBuf>,
     quiet: bool,
+    yes: bool,
 ) -> Result<String> {
     // Helper to execute git in the right directory using git -C
     let exec_git = |args: &[&str]| -> Result<String> {
@@ -276,6 +277,8 @@ pub fn handle_create_in_dir_quiet(
                 worktree_name.cyan()
             );
             false
+        } else if yes {
+            true
         } else {
             smart_confirm("Would you like to open the worktree now?", true)?
         };
