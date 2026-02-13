@@ -23,7 +23,12 @@ pub fn handle_checkout(target: Option<String>, yes: bool, agent_args: Vec<String
     let repo_root = PathBuf::from(&repo_root_str);
     let repo_name = get_repo_name().context("Not in a git repository")?;
 
-    let branch_name = checkout_target.branch_name();
+    // For PRs, resolve the actual branch name via `gh` CLI
+    let branch_name = match &checkout_target {
+        CheckoutTarget::PullRequest(pr_number) => resolve_pr_branch_name(*pr_number)
+            .unwrap_or_else(|| format!("pr/{pr_number}")),
+        CheckoutTarget::Branch(name) => name.clone(),
+    };
     let worktree_name = sanitize_branch_name(&branch_name);
 
     if let Some(existing) = find_existing_worktree(&repo_name, &branch_name)? {
@@ -117,7 +122,15 @@ fn find_existing_worktree(repo_name: &str, branch_name: &str) -> Result<Option<E
 fn ensure_branch_ready(target: &CheckoutTarget, branch_name: &str) -> Result<()> {
     match target {
         CheckoutTarget::Branch(_) => ensure_branch_available(branch_name),
-        CheckoutTarget::PullRequest(pr_number) => fetch_pull_request(*pr_number, branch_name),
+        CheckoutTarget::PullRequest(pr_number) => {
+            // If we resolved the real branch name, fetch it as a regular branch.
+            // Otherwise (pr/N fallback), use the PR ref fetch.
+            if branch_name == format!("pr/{pr_number}") {
+                fetch_pull_request(*pr_number, branch_name)
+            } else {
+                ensure_branch_available(branch_name)
+            }
+        }
     }
 }
 
@@ -142,6 +155,28 @@ fn ensure_branch_available(branch_name: &str) -> Result<()> {
     } else {
         bail!("Branch '{branch_name}' does not exist locally or on origin");
     }
+}
+
+/// Try to resolve the actual branch name for a PR via `gh pr view`.
+/// Returns `None` if `gh` is not available or the lookup fails.
+fn resolve_pr_branch_name(pr_number: u64) -> Option<String> {
+    std::process::Command::new("gh")
+        .args([
+            "pr",
+            "view",
+            &pr_number.to_string(),
+            "--json",
+            "headRefName",
+            "-q",
+            ".headRefName",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if branch.is_empty() { None } else { Some(branch) }
+        })
 }
 
 fn fetch_pull_request(pr_number: u64, branch_name: &str) -> Result<()> {
@@ -302,13 +337,6 @@ impl CheckoutTarget {
         }
 
         Ok(Self::Branch(trimmed.to_string()))
-    }
-
-    fn branch_name(&self) -> String {
-        match self {
-            Self::Branch(name) => name.clone(),
-            Self::PullRequest(number) => format!("pr/{number}"),
-        }
     }
 
     fn describe(&self) -> String {

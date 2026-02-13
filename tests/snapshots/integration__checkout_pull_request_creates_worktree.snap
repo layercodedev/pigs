@@ -1,8 +1,9 @@
 ---
 source: tests/integration.rs
+assertion_line: 357
 expression: redacted
 ---
 🌐 Fetching pull request #123 from origin...
 ✨ Checking out pull request #123 into worktree 'pr-123'...
 ✅ Worktree created at: /tmp/TEST_DIR/remote-pr-123
-  💡 To open it later, run: xlaude open pr-123
+  💡 To open it, run: xlaude open pr-123
