@@ -12,17 +12,23 @@ use crate::input::{get_command_arg, smart_confirm};
 use crate::state::{RepoConfig, WorktreeInfo, XlaudeState};
 use crate::utils::{generate_random_name, sanitize_branch_name};
 
-pub fn handle_create(name: Option<String>, yes: bool, agent_args: Vec<String>) -> Result<()> {
-    handle_create_in_dir(name, None, yes, agent_args)
+pub fn handle_create(
+    name: Option<String>,
+    from: Option<String>,
+    yes: bool,
+    agent_args: Vec<String>,
+) -> Result<()> {
+    handle_create_in_dir(name, None, from, yes, agent_args)
 }
 
 pub fn handle_create_in_dir(
     name: Option<String>,
     repo_path: Option<PathBuf>,
+    from: Option<String>,
     yes: bool,
     agent_args: Vec<String>,
 ) -> Result<()> {
-    handle_create_in_dir_quiet(name, repo_path, false, yes, agent_args)?;
+    handle_create_in_dir_quiet(name, repo_path, from, false, yes, agent_args)?;
     Ok(())
 }
 
@@ -30,6 +36,7 @@ pub fn handle_create_in_dir(
 pub fn handle_create_in_dir_quiet(
     name: Option<String>,
     repo_path: Option<PathBuf>,
+    from: Option<String>,
     quiet: bool,
     yes: bool,
     agent_args: Vec<String>,
@@ -63,9 +70,16 @@ pub fn handle_create_in_dir_quiet(
         get_repo_name().context("Not in a git repository")?
     };
 
-    // Only check base branch if no repo_path is provided (i.e., running from CLI in current directory)
+    // Resolve --from target to a source branch if provided
+    let source_branch = if let Some(ref from_target) = from {
+        Some(resolve_from_target(from_target, &exec_git)?)
+    } else {
+        None
+    };
+
+    // Only check base branch if no repo_path is provided and no --from flag
     // Clients that pass repo_path are expected to enforce their own branch safety checks
-    if repo_path.is_none() {
+    if repo_path.is_none() && source_branch.is_none() {
         let current_branch = exec_git(&["branch", "--show-current"])?;
         let default_branch = exec_git(&["symbolic-ref", "refs/remotes/origin/HEAD"])
             .ok()
@@ -75,7 +89,9 @@ pub fn handle_create_in_dir_quiet(
         let base_branches = ["main", "master", "develop", &default_branch];
         if !base_branches.contains(&current_branch.as_str()) {
             anyhow::bail!(
-                "Must be on a base branch (main, master, or develop) to create a new worktree. Current branch: {}",
+                "Must be on a base branch (main, master, or develop) to create a new worktree. \
+                 Current branch: {}\n\
+                 Tip: use --from <worktree|branch> to create from a specific branch.",
                 current_branch
             );
         }
@@ -169,24 +185,35 @@ pub fn handle_create_in_dir_quiet(
         }
     } else {
         if !quiet {
-            println!(
-                "{} Creating worktree '{}' with new branch '{}'...",
-                "✨".green(),
-                worktree_name.cyan(),
-                branch_name.cyan()
-            );
+            if let Some(ref src) = source_branch {
+                println!(
+                    "{} Creating worktree '{}' with new branch '{}' from '{}'...",
+                    "✨".green(),
+                    worktree_name.cyan(),
+                    branch_name.cyan(),
+                    src.cyan()
+                );
+            } else {
+                println!(
+                    "{} Creating worktree '{}' with new branch '{}'...",
+                    "✨".green(),
+                    worktree_name.cyan(),
+                    branch_name.cyan()
+                );
+            }
         }
 
-        // When repo_path is provided, create branch from the default branch
-        // Otherwise create from current branch
-        if repo_path.is_some() {
-            // Get the default branch
+        if let Some(ref src) = source_branch {
+            // Create branch from the resolved --from target
+            exec_git(&["branch", &branch_name, src])
+                .context("Failed to create branch from source")?;
+        } else if repo_path.is_some() {
+            // When repo_path is provided, create branch from the default branch
             let default_branch = exec_git(&["symbolic-ref", "refs/remotes/origin/HEAD"])
                 .ok()
                 .and_then(|s| s.strip_prefix("refs/remotes/origin/").map(String::from))
                 .unwrap_or_else(|| "main".to_string());
 
-            // Create branch from the default branch
             exec_git(&[
                 "branch",
                 &branch_name,
@@ -297,4 +324,44 @@ pub fn handle_create_in_dir_quiet(
     }
 
     Ok(worktree_name)
+}
+
+/// Resolve a `--from` target to a branch name.
+///
+/// Priority:
+/// 1. Look up as an xlaude worktree name (key lookup, then scan by `.name`)
+/// 2. Treat as a raw branch name (verified via `git show-ref`)
+fn resolve_from_target(
+    target: &str,
+    exec_git: &impl Fn(&[&str]) -> Result<String>,
+) -> Result<String> {
+    let state = XlaudeState::load()?;
+
+    // Try key lookup first (repo/name format)
+    if let Some(info) = state.worktrees.get(target) {
+        return Ok(info.branch.clone());
+    }
+
+    // Scan by worktree name
+    for info in state.worktrees.values() {
+        if info.name == target {
+            return Ok(info.branch.clone());
+        }
+    }
+
+    // Fall back to raw branch name
+    if exec_git(&[
+        "show-ref",
+        "--verify",
+        &format!("refs/heads/{}", target),
+    ])
+    .is_ok()
+    {
+        return Ok(target.to_string());
+    }
+
+    anyhow::bail!(
+        "Cannot resolve --from '{}': not a known worktree name or local branch.",
+        target
+    )
 }

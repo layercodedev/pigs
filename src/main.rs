@@ -31,6 +31,9 @@ enum Commands {
     Create {
         /// Name for the worktree (random BIP39 word if not provided)
         name: Option<String>,
+        /// Create from an existing worktree or branch instead of the current branch
+        #[arg(long)]
+        from: Option<String>,
         /// Automatically open the worktree after creation
         #[arg(short = 'y')]
         yes: bool,
@@ -122,9 +125,10 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Create {
             name,
+            from,
             yes,
             agent_args,
-        } => handle_create(name, yes, agent_args),
+        } => handle_create(name, from, yes, agent_args),
         Commands::Checkout {
             target,
             yes,
