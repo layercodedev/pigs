@@ -10,7 +10,7 @@ use crate::input::{get_command_arg, smart_confirm};
 use crate::state::{RepoConfig, WorktreeInfo, XlaudeState};
 use crate::utils::sanitize_branch_name;
 
-pub fn handle_checkout(target: Option<String>) -> Result<()> {
+pub fn handle_checkout(target: Option<String>, yes: bool, agent_args: Vec<String>) -> Result<()> {
     let raw_target = get_command_arg(target)?
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -73,12 +73,33 @@ pub fn handle_checkout(target: Option<String>) -> Result<()> {
         "✅".green(),
         created_path.display()
     );
-    println!(
-        "  {} To open it later, run: {} {}",
-        "💡".cyan(),
-        "xlaude open".cyan(),
-        worktree_name.cyan()
-    );
+
+    let should_open = if std::env::var("XLAUDE_TEST_MODE").is_ok()
+        || std::env::var("XLAUDE_NO_AUTO_OPEN").is_ok()
+    {
+        println!(
+            "  {} To open it, run: {} {}",
+            "💡".cyan(),
+            "xlaude open".cyan(),
+            worktree_name.cyan()
+        );
+        false
+    } else if yes {
+        true
+    } else {
+        smart_confirm("Would you like to open the worktree now?", true)?
+    };
+
+    if should_open {
+        handle_open(Some(worktree_name), agent_args)?;
+    } else if std::env::var("XLAUDE_NON_INTERACTIVE").is_err() {
+        println!(
+            "  {} To open it later, run: {} {}",
+            "💡".cyan(),
+            "xlaude open".cyan(),
+            worktree_name.cyan()
+        );
+    }
 
     Ok(())
 }

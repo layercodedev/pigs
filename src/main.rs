@@ -42,6 +42,12 @@ enum Commands {
     Checkout {
         /// Branch name or pull request number
         target: Option<String>,
+        /// Automatically open the worktree after creation
+        #[arg(short = 'y')]
+        yes: bool,
+        /// Extra arguments passed to the agent command
+        #[arg(last = true)]
+        agent_args: Vec<String>,
     },
     /// Open an existing worktree and launch Claude
     Open {
@@ -119,7 +125,11 @@ fn main() -> Result<()> {
             yes,
             agent_args,
         } => handle_create(name, yes, agent_args),
-        Commands::Checkout { target } => handle_checkout(target),
+        Commands::Checkout {
+            target,
+            yes,
+            agent_args,
+        } => handle_checkout(target, yes, agent_args),
         Commands::Open { name, agent_args } => handle_open(name, agent_args),
         Commands::Delete { name, all } => handle_delete(name, all),
         Commands::Add { name } => handle_add(name),
