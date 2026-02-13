@@ -26,7 +26,7 @@
 
 | 命令 | 职责与要点 |
 | --- | --- |
-| `create [name]` | 仅允许在 base 分支（main/master/develop 或远端默认分支）执行；缺省名称从 BIP39 词库随机生成；自动更新 submodules 并拷贝 `CLAUDE.local.md`；可通过 `XLAUDE_NO_AUTO_OPEN` 跳过“是否立即打开”提示。 |
+| `create [name] [--from <worktree\|branch>]` | 仅允许在 base 分支（main/master/develop 或远端默认分支）执行；`--from` 可跳过此限制，从指定 worktree 或本地分支创建新 worktree（先按 xlaude state 查找 worktree 名称，再按 `git show-ref` 匹配分支名）；缺省名称从 BIP39 词库随机生成；自动更新 submodules 并拷贝 `CLAUDE.local.md`；可通过 `XLAUDE_NO_AUTO_OPEN` 跳过"是否立即打开"提示。 |
 | `checkout <branch|pr>` | 支持分支名或 PR 号（`123`/`#123`）；缺失分支会从 `origin` fetch；PR 自动 fetch `pull/<n>/head`→`pr/<n>`；如已存在对应 worktree，会提示改为 `open`。 |
 | `open [name]` | 无参数时：若当前目录为非 base worktree，直接打开；未被管理的 worktree 会询问后自动加入 state；否则进入交互式选择或接受管道输入；启动全局 `agent` 命令并继承所有环境变量。 |
 | `add [name]` | 将当前 git worktree 写入 state，默认名称为分支名（斜杠会被 `-` 取代）；拒绝重复路径。 |
@@ -73,6 +73,9 @@
 # 创建并立即开始一个功能分支
 xlaude create ingestion-batch
 xlaude open ingestion-batch
+
+# 从已有 worktree 派生子分支（如需基于未合并的功能继续开发）
+xlaude create fix-for-batch --from ingestion-batch
 
 # 直接检出 GitHub PR #128 并分配独立 worktree
 xlaude checkout 128
