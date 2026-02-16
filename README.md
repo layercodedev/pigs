@@ -21,18 +21,19 @@ pigs is based on [xlaude](https://github.com/Xuanwo/xlaude), originally created 
 
 ## Installation
 
-### Prerequisites
-
-- Git with worktree support (git >= 2.36 recommended).
-- Rust toolchain (for `cargo install` or local builds).
-- Claude CLI or any other agent command you plan to run.
-- Optional but recommended: GitHub CLI (`gh`) so `delete` can detect merged PRs even after squash merges.
-
-### From source
-
 ```bash
+# Install Rust if you don't have it
+brew install rust
+
+# Install pigs
 cargo install --git https://github.com/layercodedev/pigs
 ```
+
+### Prerequisites
+
+- Git >= 2.36 (for worktree support).
+- Claude CLI or any other agent command you plan to run.
+- Optional: GitHub CLI (`gh`) so `delete` can detect merged PRs after squash merges.
 
 ## Shell completions
 
