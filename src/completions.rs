@@ -48,6 +48,9 @@ _pigs() {{
                 COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
             elif [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--from -y" -- "$cur"))
+            else
+                local linear_issues=$(pigs complete-linear 2>/dev/null | cut -f1)
+                COMPREPLY=($(compgen -W "$linear_issues" -- "$cur"))
             fi
             ;;
         open|dir|delete)
@@ -122,7 +125,7 @@ _pigs() {{
                 '--from[Create from an existing worktree or branch]:source:_pigs_worktrees'
                 '-y[Automatically open the worktree after creation]'
             )
-            _arguments -s $create_opts '1:worktree name:'
+            _arguments -s $create_opts '1:worktree name or Linear issue:_pigs_linear_issues'
             ;;
         add)
             if (( CURRENT == 3 )); then
@@ -173,6 +176,22 @@ _pigs_worktrees() {{
     fi
 }}
 
+_pigs_linear_issues() {{
+    local -a issues
+    local IFS=$'\n'
+    local issue_data
+    issue_data=($(pigs complete-linear 2>/dev/null))
+
+    if [[ -n "$issue_data" ]]; then
+        for line in $issue_data; do
+            local id=$(echo "$line" | cut -f1)
+            local title=$(echo "$line" | cut -f2)
+            issues+=("$id:$title")
+        done
+        _describe -V 'Linear issue' issues
+    fi
+}}
+
 _pigs "$@"
 "#
     );
@@ -219,8 +238,21 @@ end
 complete -c pigs -n "__fish_seen_subcommand_from open dir delete" -a "(__pigs_worktrees)"
 complete -c pigs -n "__fish_seen_subcommand_from rename" -n "not __fish_seen_argument_from (__pigs_worktrees_simple)" -a "(__pigs_worktrees)"
 
+# Linear issue completions
+function __pigs_linear_issues
+    pigs complete-linear 2>/dev/null | while read -l line
+        set -l parts (string split \t $line)
+        if test (count $parts) -ge 2
+            echo "$parts[1]\t$parts[2]"
+        end
+    end
+end
+
 # --from flag for create command
 complete -c pigs -n "__fish_seen_subcommand_from create" -l from -d "Create from an existing worktree or branch" -r -a "(__pigs_worktrees)"
+
+# Linear issue completions for create command
+complete -c pigs -n "__fish_seen_subcommand_from create; and not __fish_seen_argument_from -l from" -a "(__pigs_linear_issues)"
 
 # Shell completions for completions command
 complete -c pigs -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"

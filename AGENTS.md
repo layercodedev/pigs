@@ -26,7 +26,7 @@
 
 | Command | Responsibilities & Key Points |
 | --- | --- |
-| `create [name] [--from <worktree\|branch>]` | Only runs on a base branch (main/master/develop or the remote default); `--from` bypasses this restriction, creating a new worktree from a specified worktree or local branch (first looks up worktree names in pigs state, then matches branch names via `git show-ref`); without a name, a random BIP39 word is selected; automatically updates submodules and copies `CLAUDE.local.md`; set `PIGS_NO_AUTO_OPEN` to skip the "open now?" prompt. |
+| `create [name] [--from <worktree\|branch>]` | Only runs on a base branch (main/master/develop or the remote default); `--from` bypasses this restriction, creating a new worktree from a specified worktree or local branch (first looks up worktree names in pigs state, then matches branch names via `git show-ref`); without a name, a random BIP39 word is selected; if the name matches a Linear task ID (e.g. `ENG-123`) and `LINEAR_API_KEY` is set, fetches the issue from Linear, uses its suggested branch name, and passes the title/description as `-p` to the agent; automatically updates submodules and copies `CLAUDE.local.md`; set `PIGS_NO_AUTO_OPEN` to skip the "open now?" prompt. |
 | `checkout <branch|pr>` | Accepts branch names or PR numbers (`123`/`#123`); missing branches are fetched from `origin`; PRs auto-fetch `pull/<n>/head` into `pr/<n>`; if a matching worktree already exists, suggests using `open` instead. |
 | `open [name]` | Without arguments: if the current directory is a non-base worktree, opens it directly; untracked worktrees are offered to be added to state; otherwise enters interactive selection or accepts piped input; launches the global `agent` command and inherits all environment variables. |
 | `add [name]` | Writes the current git worktree to state; name defaults to the branch name (slashes replaced with `-`); rejects duplicate paths. |
@@ -38,6 +38,7 @@
 | `config` | Opens the state file in `$EDITOR` for manual editing of `agent` and other global settings. |
 | `completions <shell>` | Outputs Bash/Zsh/Fish completion scripts; internally calls the hidden `complete-worktrees` command for dynamic listings. |
 | `complete-worktrees [--format=simple|detailed]` | Provides a simple or detailed (repo/path/session summary) worktree list for completion scripts or custom tooling. |
+| `complete-linear` | Hidden command; outputs `identifier\ttitle` for the current user's active Linear issues; used by shell completions for the `create` command. |
 
 ## 5 · Agent & Session Management
 - The `agent` field in `state.json` defines the launch command; default is `claude --dangerously-skip-permissions`. The command is tokenized using shell rules; complex pipelines should be wrapped in a script.
@@ -64,6 +65,7 @@
 | `PIGS_CODEX_SESSIONS_DIR=/path` | Specify the Codex session log location for custom sync strategies. |
 | `PIGS_TEST_SEED=42` | Make random worktree names reproducible in tests. |
 | `PIGS_TEST_MODE=1` | CI/test mode; disables some interactivity and prevents auto-opening new worktrees. |
+| `LINEAR_API_KEY` | Linear personal API key; enables `create` to resolve task IDs (e.g. `ENG-123`) and powers `complete-linear` shell completions. |
 
 - Input priority: CLI arguments > piped input > interactive prompt. For example, `echo wrong | pigs open correct` will still open `correct`.
 - Piped input works for both names and `y/n` confirmations to `smart_confirm`, so `yes | pigs delete foo` enables unattended cleanup.

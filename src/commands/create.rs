@@ -9,6 +9,7 @@ use crate::git::{
     update_submodules,
 };
 use crate::input::{get_command_arg, smart_confirm};
+use crate::linear;
 use crate::state::{RepoConfig, WorktreeInfo, PigsState};
 use crate::utils::{generate_random_name, sanitize_branch_name};
 
@@ -39,7 +40,7 @@ pub fn handle_create_in_dir_quiet(
     from: Option<String>,
     quiet: bool,
     yes: bool,
-    agent_args: Vec<String>,
+    mut agent_args: Vec<String>,
 ) -> Result<String> {
     // Helper to execute git in the right directory using git -C
     let exec_git = |args: &[&str]| -> Result<String> {
@@ -98,10 +99,54 @@ pub fn handle_create_in_dir_quiet(
     }
 
     // Get name from CLI args or pipe, generate if not provided
-    let branch_name = match get_command_arg(name)? {
+    let mut branch_name = match get_command_arg(name)? {
         Some(n) => n,
         None => generate_random_name()?,
     };
+
+    // If the name looks like a Linear task ID (e.g. ENG-123), fetch issue details
+    if linear::is_linear_task_id(&branch_name) {
+        if std::env::var("LINEAR_API_KEY").is_ok() {
+            match linear::fetch_issue(&branch_name) {
+                Ok(issue) => {
+                    if !quiet {
+                        println!(
+                            "{} Found Linear issue: {}",
+                            "🔗".green(),
+                            issue.title.cyan()
+                        );
+                    }
+                    branch_name = issue.branch_name;
+
+                    if !agent_args.contains(&"-p".to_string()) {
+                        let mut prompt = issue.title;
+                        if let Some(desc) = issue.description {
+                            prompt.push_str("\n\n");
+                            prompt.push_str(&desc);
+                        }
+                        agent_args.push("-p".to_string());
+                        agent_args.push(prompt);
+                    }
+                }
+                Err(e) => {
+                    if !quiet {
+                        eprintln!(
+                            "{} Failed to fetch Linear issue {}: {}",
+                            "⚠️".yellow(),
+                            branch_name,
+                            e
+                        );
+                    }
+                }
+            }
+        } else if !quiet {
+            eprintln!(
+                "{} LINEAR_API_KEY not set; using '{}' as branch name",
+                "⚠️".yellow(),
+                branch_name
+            );
+        }
+    }
 
     // Sanitize the branch name for use in directory names
     let worktree_name = sanitize_branch_name(&branch_name);

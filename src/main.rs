@@ -9,12 +9,14 @@ mod completions;
 mod dashboard;
 mod git;
 mod input;
+mod linear;
 mod state;
 mod utils;
 
 use commands::{
-    handle_add, handle_checkout, handle_clean, handle_config, handle_create, handle_dashboard,
-    handle_delete, handle_dir, handle_list, handle_open, handle_rename,
+    handle_add, handle_checkout, handle_clean, handle_complete_linear, handle_config,
+    handle_create, handle_dashboard, handle_delete, handle_dir, handle_list, handle_open,
+    handle_rename,
 };
 
 #[derive(Parser)]
@@ -106,6 +108,9 @@ enum Commands {
         #[arg(long, default_value = "simple")]
         format: String,
     },
+    /// Output Linear issues for shell completions (hidden)
+    #[command(hide = true)]
+    CompleteLinear,
     /// Open the pigs state file in $EDITOR
     Config,
     /// Launch the embedded dashboard
@@ -143,6 +148,7 @@ fn main() -> Result<()> {
         Commands::Dir { name } => handle_dir(name),
         Commands::Completions { shell } => completions::handle_completions(shell),
         Commands::CompleteWorktrees { format } => commands::handle_complete_worktrees(&format),
+        Commands::CompleteLinear => handle_complete_linear(),
         Commands::Config => handle_config(),
         Commands::Dashboard { addr, no_browser } => handle_dashboard(addr, no_browser),
     }
