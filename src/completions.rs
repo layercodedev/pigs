@@ -113,12 +113,6 @@ _pigs() {{
         return
     fi
 
-    # Shift words so subcommand becomes words[1] and _arguments works correctly
-    local curcontext="${{curcontext}}"
-    local -a subcmd_words
-    subcmd_words=("${{words[2,-1]}}")
-    local subcmd_current=$((CURRENT - 1))
-
     case "${{words[2]}}" in
         open|dir|delete)
             if (( CURRENT == 3 )); then
@@ -133,24 +127,30 @@ _pigs() {{
             fi
             ;;
         linear)
-            words=("${{subcmd_words[@]}}")
-            CURRENT=$subcmd_current
-            local -a linear_opts
-            linear_opts=(
-                '--from[Create from an existing worktree or branch]:source:_pigs_from_targets'
-                '-y[Automatically confirm prompts]'
-            )
-            _arguments -s $linear_opts '1:Linear issue:_pigs_linear_issues'
+            case "${{words[CURRENT-1]}}" in
+                --from) _pigs_from_targets ;;
+                *)
+                    if [[ "${{words[CURRENT]}}" == -* ]]; then
+                        local -a linear_opts
+                        linear_opts=('--from:Create from an existing worktree or branch' '-y:Automatically confirm prompts')
+                        _describe 'option' linear_opts
+                    else
+                        _pigs_linear_issues
+                    fi
+                    ;;
+            esac
             ;;
         create)
-            words=("${{subcmd_words[@]}}")
-            CURRENT=$subcmd_current
-            local -a create_opts
-            create_opts=(
-                '--from[Create from an existing worktree or branch]:source:_pigs_from_targets'
-                '-y[Automatically open the worktree after creation]'
-            )
-            _arguments -s $create_opts '1:worktree name:'
+            case "${{words[CURRENT-1]}}" in
+                --from) _pigs_from_targets ;;
+                *)
+                    if [[ "${{words[CURRENT]}}" == -* ]]; then
+                        local -a create_opts
+                        create_opts=('--from:Create from an existing worktree or branch' '-y:Automatically open after creation')
+                        _describe 'option' create_opts
+                    fi
+                    ;;
+            esac
             ;;
         add)
             if (( CURRENT == 3 )); then

@@ -91,6 +91,13 @@ struct AssignedIssues {
 struct IssueNode {
     identifier: String,
     title: String,
+    state: Option<IssueState>,
+}
+
+#[derive(Deserialize)]
+struct IssueState {
+    #[serde(rename = "type")]
+    state_type: String,
 }
 
 pub fn start_issue(identifier: &str) -> Result<()> {
@@ -174,7 +181,7 @@ pub fn fetch_my_issues() -> Result<Vec<LinearIssueSummary>> {
     let api_key = std::env::var("LINEAR_API_KEY")
         .context("LINEAR_API_KEY environment variable is not set")?;
 
-    let query = r#"{"query":"{ viewer { assignedIssues(filter: { state: { type: { nin: [\"completed\", \"canceled\"] } } }, first: 50) { nodes { identifier title } } } }"}"#;
+    let query = r#"{"query":"{ viewer { assignedIssues(filter: { state: { type: { in: [\"unstarted\", \"backlog\"] } } }, first: 50, orderBy: updatedAt) { nodes { identifier title state { type } } } } }"}"#;
 
     let response: ViewerResponse = ureq::post(LINEAR_API_URL)
         .header("Authorization", &api_key)
@@ -185,11 +192,16 @@ pub fn fetch_my_issues() -> Result<Vec<LinearIssueSummary>> {
         .read_json()
         .context("Failed to parse Linear API response")?;
 
-    Ok(response
-        .data
-        .viewer
-        .assigned_issues
-        .nodes
+    let mut nodes = response.data.viewer.assigned_issues.nodes;
+    nodes.sort_by_key(|n| {
+        match n.state.as_ref().map(|s| s.state_type.as_str()) {
+            Some("unstarted") => 0, // Todo first
+            Some("backlog") => 1,   // Backlog second
+            _ => 2,
+        }
+    });
+
+    Ok(nodes
         .into_iter()
         .map(|n| LinearIssueSummary {
             identifier: n.identifier,
