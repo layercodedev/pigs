@@ -37,15 +37,36 @@ cargo install --git https://github.com/layercodedev/pigs
 
 ## Shell completions
 
-Generate completion scripts for bash, zsh, or fish:
+### Zsh (macOS default)
 
 ```bash
-pigs completions bash > ~/.bash_completion.d/pigs
-pigs completions zsh  > ~/.zfunc/_pigs
-pigs completions fish > ~/.config/fish/completions/pigs.fish
+mkdir -p ~/.zfunc && pigs completions zsh > ~/.zfunc/_pigs
 ```
 
-The completions use the hidden `pigs complete-worktrees --format=detailed` helper to surface worktree names, repositories, and recent session counts.
+Then add these lines to your `~/.zshrc` (before any plugin that calls `compinit`):
+
+```zsh
+fpath+=~/.zfunc
+autoload -Uz compinit && compinit
+```
+
+If you use `zsh-autocomplete`, add this **after** sourcing the plugin instead:
+
+```zsh
+autoload -Uz _pigs && compdef _pigs pigs
+```
+
+### Bash
+
+```bash
+mkdir -p ~/.bash_completion.d && pigs completions bash > ~/.bash_completion.d/pigs
+```
+
+### Fish
+
+```bash
+pigs completions fish > ~/.config/fish/completions/pigs.fish
+```
 
 ## Configuration & state
 
