@@ -1,102 +1,102 @@
 # xlaude · Agent Handbook
 
-## 0 · 关于用户
-- 用户：漩涡（Xuanwo）
-- 偏好：高频上下文切换、以 git worktree 管理多条分支，并依赖 AI Agent 协助编码。
+## 0 · About the User
+- User: Xuanwo
+- Preferences: Frequent context switching, managing multiple branches via git worktree, and relying on AI agents for coding assistance.
 
-## 1 · 编程哲学
-1. 程序首先服务于人类阅读，机器可执行只是附带价值。
-2. 遵循各语言的惯用风格，代码应自解释。
-3. 识别并消除以下坏味道：僵化、冗余、循环依赖、脆弱性、晦涩性、数据泥团、不必要的复杂性。
-4. 一旦发现坏味道，立即提醒并提出改进方案。
+## 1 · Programming Philosophy
+1. Programs are written primarily for humans to read; machine executability is a side benefit.
+2. Follow idiomatic style for each language; code should be self-explanatory.
+3. Identify and eliminate these code smells: rigidity, redundancy, circular dependencies, fragility, obscurity, data clumps, unnecessary complexity.
+4. Once a code smell is detected, flag it immediately and propose improvements.
 
-## 2 · 语言策略
+## 2 · Language Policy
 
-| 内容类型 | 语言 |
+| Content Type | Language |
 | --- | --- |
-| 解释、讨论、沟通 | **简体中文** |
-| 代码、注释、变量名、提交信息、文档示例 | **English**（技术内容中禁止出现中文字符） |
+| Explanations, discussions, communication | **English** |
+| Code, comments, variable names, commit messages, documentation examples | **English** (no Chinese characters allowed in technical content) |
 
-## 3 · 编码标准
-- 仅在行为不明显时添加英文注释。
-- 默认无需新增测试；仅在必要或显式要求时补充。
-- 代码结构需保持可演进性，杜绝复制粘贴式实现。
+## 3 · Coding Standards
+- Only add English comments when the behavior is not self-evident.
+- No new tests by default; only add them when necessary or explicitly requested.
+- Code structure must remain evolvable; no copy-paste implementations.
 
-## 4 · CLI 功能速览
+## 4 · CLI Feature Overview
 
-| 命令 | 职责与要点 |
+| Command | Responsibilities & Key Points |
 | --- | --- |
-| `create [name] [--from <worktree\|branch>]` | 仅允许在 base 分支（main/master/develop 或远端默认分支）执行；`--from` 可跳过此限制，从指定 worktree 或本地分支创建新 worktree（先按 xlaude state 查找 worktree 名称，再按 `git show-ref` 匹配分支名）；缺省名称从 BIP39 词库随机生成；自动更新 submodules 并拷贝 `CLAUDE.local.md`；可通过 `XLAUDE_NO_AUTO_OPEN` 跳过"是否立即打开"提示。 |
-| `checkout <branch|pr>` | 支持分支名或 PR 号（`123`/`#123`）；缺失分支会从 `origin` fetch；PR 自动 fetch `pull/<n>/head`→`pr/<n>`；如已存在对应 worktree，会提示改为 `open`。 |
-| `open [name]` | 无参数时：若当前目录为非 base worktree，直接打开；未被管理的 worktree 会询问后自动加入 state；否则进入交互式选择或接受管道输入；启动全局 `agent` 命令并继承所有环境变量。 |
-| `add [name]` | 将当前 git worktree 写入 state，默认名称为分支名（斜杠会被 `-` 取代）；拒绝重复路径。 |
-| `rename <old> <new>` | 仅更新 state 中的工作树别名，不触碰实际目录或分支。 |
-| `list [--json]` | 按仓库分组展示路径/创建时间，并读取 Claude (`~/.claude/projects`) 与 Codex (`~/.codex/sessions` 或 `XLAUDE_CODEX_SESSIONS_DIR`) 会话，列出最近 3 条用户消息；`--json` 输出结构化字段，方便脚本消费。 |
-| `dir [name]` | 输出纯路径，便于 `cd $(xlaude dir foo)`；可交互选择或接收管道输入。 |
-| `delete [name]` | 自动检查未提交修改、未推送提交以及合并状态（通过 `git branch --merged` 与 `gh pr list` 双重检测），必要时多次确认；若目录已不存在则执行 `git worktree prune`；最后尝试安全删分支，不合并时再询问是否 `-D`。 |
-| `clean` | 遍历所有仓库，取 `git worktree list --porcelain` 与 state 比对，移除已被手动删除的 worktree。 |
-| `config` | 用 `$EDITOR` 打开 state 文件，便于手工修改 `agent` 等全局配置。 |
-| `completions <shell>` | 输出 Bash/Zsh/Fish 补全脚本，内部调用隐藏命令 `complete-worktrees` 获取动态列表。 |
-| `complete-worktrees [--format=simple|detailed]` | 提供简单或包含 repo/path/session 摘要的工作树清单，供补全或自定义脚本调用。 |
+| `create [name] [--from <worktree\|branch>]` | Only runs on a base branch (main/master/develop or the remote default); `--from` bypasses this restriction, creating a new worktree from a specified worktree or local branch (first looks up worktree names in xlaude state, then matches branch names via `git show-ref`); without a name, a random BIP39 word is selected; automatically updates submodules and copies `CLAUDE.local.md`; set `XLAUDE_NO_AUTO_OPEN` to skip the "open now?" prompt. |
+| `checkout <branch|pr>` | Accepts branch names or PR numbers (`123`/`#123`); missing branches are fetched from `origin`; PRs auto-fetch `pull/<n>/head` into `pr/<n>`; if a matching worktree already exists, suggests using `open` instead. |
+| `open [name]` | Without arguments: if the current directory is a non-base worktree, opens it directly; untracked worktrees are offered to be added to state; otherwise enters interactive selection or accepts piped input; launches the global `agent` command and inherits all environment variables. |
+| `add [name]` | Writes the current git worktree to state; name defaults to the branch name (slashes replaced with `-`); rejects duplicate paths. |
+| `rename <old> <new>` | Only updates the worktree alias in state; does not touch the actual directory or branch. |
+| `list [--json]` | Groups worktrees by repository, showing path/creation time, and reads Claude (`~/.claude/projects`) and Codex (`~/.codex/sessions` or `XLAUDE_CODEX_SESSIONS_DIR`) sessions, listing the 3 most recent user messages; `--json` outputs structured fields for script consumption. |
+| `dir [name]` | Outputs the bare path, useful for `cd $(xlaude dir foo)`; supports interactive selection or piped input. |
+| `delete [name]` | Automatically checks for uncommitted changes, unpushed commits, and merge status (via both `git branch --merged` and `gh pr list`), prompting for confirmation as needed; runs `git worktree prune` if the directory no longer exists; finally attempts a safe branch deletion, asking about `-D` if unmerged. |
+| `clean` | Iterates over all repositories, compares `git worktree list --porcelain` with state, and removes worktrees that were manually deleted. |
+| `config` | Opens the state file in `$EDITOR` for manual editing of `agent` and other global settings. |
+| `completions <shell>` | Outputs Bash/Zsh/Fish completion scripts; internally calls the hidden `complete-worktrees` command for dynamic listings. |
+| `complete-worktrees [--format=simple|detailed]` | Provides a simple or detailed (repo/path/session summary) worktree list for completion scripts or custom tooling. |
 
-## 5 · Agent 与会话管理
-- `state.json` 中的 `agent` 字段定义启动命令，默认 `claude --dangerously-skip-permissions`。命令按 Shell 规则分词，建议将复杂管道封装为脚本。
-- 当 `agent` 的可执行名为 `codex` 且未显式给出位置参数时，xlaude 会在 `~/.codex/sessions`（或 `XLAUDE_CODEX_SESSIONS_DIR`）寻找与当前 worktree 匹配的最新会话，并自动追加 `resume <session-id>`。
-- `list` 会解析 Claude JSONL 与 Codex session 目录，展示最近的用户消息与“time ago”标签，帮助判断上下文是否值得恢复。
+## 5 · Agent & Session Management
+- The `agent` field in `state.json` defines the launch command; default is `claude --dangerously-skip-permissions`. The command is tokenized using shell rules; complex pipelines should be wrapped in a script.
+- When `agent`'s executable is `codex` and no positional arguments are given, xlaude searches `~/.codex/sessions` (or `XLAUDE_CODEX_SESSIONS_DIR`) for the latest session matching the current worktree and automatically appends `resume <session-id>`.
+- `list` parses Claude JSONL and Codex session directories, displaying recent user messages with "time ago" labels to help decide whether a context is worth resuming.
 
-## 6 · 状态与数据
-- 状态位置：
+## 6 · State & Data
+- State file locations:
   - macOS: `~/Library/Application Support/com.xuanwo.xlaude/state.json`
   - Linux: `~/.config/xlaude/state.json`
   - Windows: `%APPDATA%\xuanwo\xlaude\config\state.json`
-- 条目键：`<repo-name>/<worktree-name>`；运行时若发现旧版本（无 `/`）会自动迁移并写回。
-- `XLAUDE_CONFIG_DIR` 可重定向整个配置目录，便于测试或隔离环境。
-- 创建/checkout 新 worktree 时若仓库根目录存在 `CLAUDE.local.md` 会自动复制；同时执行 `git submodule update --init --recursive` 保证依赖就位。
+- Entry keys follow the format `<repo-name>/<worktree-name>`; old-format entries (without `/`) are auto-migrated at runtime.
+- `XLAUDE_CONFIG_DIR` redirects the entire config directory for testing or isolated environments.
+- When creating/checking out a new worktree, `CLAUDE.local.md` is automatically copied from the repo root if it exists; `git submodule update --init --recursive` is also run to ensure dependencies are in place.
 
-## 7 · 环境变量与自动化
+## 7 · Environment Variables & Automation
 
-| 变量 | 作用 |
+| Variable | Purpose |
 | --- | --- |
-| `XLAUDE_YES=1` | 对所有确认对话框默认为“是”；多用于脚本化删除或批量操作。 |
-| `XLAUDE_NON_INTERACTIVE=1` | 禁用交互式选择，命令在无输入时直接失败或采用默认值。 |
-| `XLAUDE_NO_AUTO_OPEN=1` | `create` 成功后不再提示“是否立即 open”。 |
-| `XLAUDE_CONFIG_DIR=/path` | 覆盖 state/配置所在目录。 |
-| `XLAUDE_CODEX_SESSIONS_DIR=/path` | 指定 Codex 会话日志位置，便于自定义同步策略。 |
-| `XLAUDE_TEST_SEED=42` | 让随机工作树名在测试中可复现。 |
-| `XLAUDE_TEST_MODE=1` | CI/测试专用，关闭部分交互并禁止自动打开新 worktree。 |
+| `XLAUDE_YES=1` | Auto-confirm all prompts; commonly used for scripted deletions or batch operations. |
+| `XLAUDE_NON_INTERACTIVE=1` | Disable interactive selection; commands fail or use defaults when no input is provided. |
+| `XLAUDE_NO_AUTO_OPEN=1` | Skip the "open now?" prompt after `create`. |
+| `XLAUDE_CONFIG_DIR=/path` | Override the state/config directory location. |
+| `XLAUDE_CODEX_SESSIONS_DIR=/path` | Specify the Codex session log location for custom sync strategies. |
+| `XLAUDE_TEST_SEED=42` | Make random worktree names reproducible in tests. |
+| `XLAUDE_TEST_MODE=1` | CI/test mode; disables some interactivity and prevents auto-opening new worktrees. |
 
-- 输入优先级：命令行参数 > 管道输入 > 交互式提示。例如 `echo wrong | xlaude open correct` 依然会打开 `correct`。
-- 管道输入既可传名称，也可给 `smart_confirm` 提供 `y/n`，因此 `yes | xlaude delete foo` 可实现无人值守清理。
+- Input priority: CLI arguments > piped input > interactive prompt. For example, `echo wrong | xlaude open correct` will still open `correct`.
+- Piped input works for both names and `y/n` confirmations to `smart_confirm`, so `yes | xlaude delete foo` enables unattended cleanup.
 
-## 8 · 工作流示例
+## 8 · Workflow Examples
 ```bash
-# 创建并立即开始一个功能分支
+# Create and immediately start a feature branch
 xlaude create ingestion-batch
 xlaude open ingestion-batch
 
-# 从已有 worktree 派生子分支（如需基于未合并的功能继续开发）
+# Branch off an existing worktree (e.g., to continue work on an unmerged feature)
 xlaude create fix-for-batch --from ingestion-batch
 
-# 直接检出 GitHub PR #128 并分配独立 worktree
+# Check out GitHub PR #128 and assign a dedicated worktree
 xlaude checkout 128
 xlaude open pr-128
 
-# 查看所有活跃上下文及最近对话
+# View all active contexts and recent conversations
 xlaude list
 
-# 任务结束后清理
+# Clean up after the task is done
 xlaude delete ingestion-batch
 ```
 
-## 9 · 依赖提示
-- Git ≥ 2.36（需要成熟的 worktree 支持）。
-- Rust 工具链（用于构建或 `cargo install`）。
-- Claude CLI 或自定义 agent（如 Codex）。
-- `gh` CLI 可选，用于 `delete` 检测已经合并的 PR（无则自动降级，仅依赖 git）。
+## 9 · Dependencies
+- Git >= 2.36 (mature worktree support required).
+- Rust toolchain (for building or `cargo install`).
+- Claude CLI or a custom agent (e.g., Codex).
+- `gh` CLI is optional; used by `delete` to detect merged PRs (falls back to git-only detection without it).
 
-## 10 · 注意事项
-- `create`/`checkout` 会拒绝在非 base 分支上执行，避免分支森林难以维护。
-- `delete` 在当前目录即将被删除时，会先切换回主仓库以免 `worktree remove` 卡住；若目录已不在磁盘上，会提示是否仅从 state 清理。
-- `list --json` 暴露精准路径、分支、创建时间、Claude/Codex 会话，可直接被脚本或 UI 消费；注意敏感信息输出。
-- Shell 补全依赖隐藏命令 `complete-worktrees`，若需要自定义补全，记得使用 `--format=detailed` 以获得 repo/path/session 描述。
-- 代码风格遵循“先思考、再尝试”原则：遇到不确定性需先复述问题、列出方案，再实施。
+## 10 · Notes
+- `create`/`checkout` refuse to run on non-base branches to prevent an unmanageable branch forest.
+- `delete` switches back to the main repository when the current directory is about to be deleted, preventing `worktree remove` from hanging; if the directory is already gone, it offers to clean up state only.
+- `list --json` exposes precise paths, branches, creation times, and Claude/Codex sessions; be aware of sensitive information in the output.
+- Shell completions rely on the hidden `complete-worktrees` command; use `--format=detailed` for repo/path/session descriptions when building custom completions.
+- Follow the "think first, then try" principle: when uncertain, restate the problem, list possible approaches, then implement.
