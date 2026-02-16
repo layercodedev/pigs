@@ -100,6 +100,20 @@ Set the global `agent` field to the exact command line pigs should launch for ev
 
 ## Command reference
 
+### `pigs linear <issue-id> [--from <worktree|branch>] [-y] [-- <agent-args>]`
+
+- Takes a Linear issue ID (e.g. `ENG-123`), fetches the issue title and description, and creates a worktree with the branch name Linear generates.
+- Prompts to set the issue to "In Progress" and assign it to you.
+- Requires `LINEAR_API_KEY` environment variable (a Linear personal API key).
+- Shell completions for issue IDs are provided — `pigs linear <tab>` shows your Todo and Backlog issues.
+- Delegates to `create` under the hood, so all `--from` and `-y` flags work the same way.
+
+```bash
+export LINEAR_API_KEY=lin_api_...
+pigs linear ENG-123
+pigs linear ENG-456 --from existing-worktree
+```
+
 ### `pigs create [name] [--from <worktree|branch>] [-y] [-- <agent-args>]`
 
 - Must be run from a base branch (`main`, `master`, `develop`, or the remote default), unless `--from` is used.
