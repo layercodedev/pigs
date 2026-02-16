@@ -9,6 +9,7 @@ pub struct LinearIssue {
     pub branch_name: String,
 }
 
+#[derive(Clone)]
 pub struct LinearIssueSummary {
     pub identifier: String,
     pub title: String,

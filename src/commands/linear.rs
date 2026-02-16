@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 
 use crate::commands::create::handle_create;
-use crate::input::{get_command_arg, smart_confirm};
+use crate::input::{get_command_arg, smart_confirm, smart_select};
 use crate::linear;
 
 pub fn handle_linear(
@@ -13,7 +13,29 @@ pub fn handle_linear(
 ) -> Result<()> {
     let identifier = match get_command_arg(identifier)? {
         Some(id) => id,
-        None => anyhow::bail!("A Linear issue identifier is required (e.g. ENG-123)"),
+        None => {
+            // Fetch assigned issues and let the user pick one
+            std::env::var("LINEAR_API_KEY")
+                .context("LINEAR_API_KEY environment variable is not set")?;
+
+            let issues = linear::fetch_my_issues()
+                .context("Failed to fetch Linear issues")?;
+
+            if issues.is_empty() {
+                anyhow::bail!("No assigned issues found in Linear");
+            }
+
+            let selection = smart_select(
+                "Select a Linear issue",
+                &issues,
+                |issue| format!("{} {}", issue.identifier, issue.title),
+            )?;
+
+            match selection {
+                Some(index) => issues[index].identifier.clone(),
+                None => anyhow::bail!("A Linear issue identifier is required (e.g. ENG-123)"),
+            }
+        }
     };
 
     if !linear::is_linear_task_id(&identifier) {
