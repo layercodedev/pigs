@@ -17,7 +17,7 @@ fn setup_test_repo() -> (TempDir, String, String) {
         "agent": "true"
     });
     fs::write(
-        config_dir.join("state.json"),
+        config_dir.join("settings.json"),
         serde_json::to_string_pretty(&default_state).unwrap(),
     )
     .unwrap();

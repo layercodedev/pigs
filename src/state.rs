@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -95,14 +94,12 @@ impl PigsState {
 }
 
 pub fn get_config_dir() -> Result<PathBuf> {
-    // Allow overriding config directory for testing
     if let Ok(config_dir) = std::env::var("PIGS_CONFIG_DIR") {
         return Ok(PathBuf::from(config_dir));
     }
 
-    let proj_dirs = ProjectDirs::from("com", "dctanner", "pigs")
-        .context("Failed to determine config directory")?;
-    Ok(proj_dirs.config_dir().to_path_buf())
+    let home = std::env::var("HOME").context("HOME environment variable is not set")?;
+    Ok(PathBuf::from(home).join(".pigs"))
 }
 
 pub fn get_state_path() -> Result<PathBuf> {
@@ -110,7 +107,28 @@ pub fn get_state_path() -> Result<PathBuf> {
 }
 
 fn get_config_path() -> Result<PathBuf> {
-    Ok(get_config_dir()?.join("state.json"))
+    let dir = get_config_dir()?;
+    let new_path = dir.join("settings.json");
+
+    if !new_path.exists() {
+        // Migrate from old state.json in same dir
+        let old_path = dir.join("state.json");
+        if old_path.exists() {
+            fs::rename(&old_path, &new_path).ok();
+        } else {
+            // Migrate from old macOS Application Support location
+            if let Ok(home) = std::env::var("HOME") {
+                let legacy_path = PathBuf::from(&home)
+                    .join("Library/Application Support/com.dctanner.pigs/state.json");
+                if legacy_path.exists() {
+                    fs::create_dir_all(&dir).ok();
+                    fs::rename(&legacy_path, &new_path).ok();
+                }
+            }
+        }
+    }
+
+    Ok(new_path)
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

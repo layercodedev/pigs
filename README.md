@@ -31,12 +31,8 @@ pigs is based on [xlaude](https://github.com/Xuanwo/xlaude), originally created 
 ### From source
 
 ```bash
-git clone https://github.com/dctanner/pigs
-cd pigs
-cargo build --release
+cargo install --git https://github.com/layercodedev/pigs
 ```
-
-Use `target/release/pigs` or add it to your `PATH`.
 
 ## Shell completions
 
@@ -54,13 +50,7 @@ The completions use the hidden `pigs complete-worktrees --format=detailed` helpe
 
 ### State file
 
-State lives in a JSON file that pigs migrates automatically:
-
-- macOS: `~/Library/Application Support/com.dctanner.pigs/state.json`
-- Linux: `~/.config/pigs/state.json`
-- Windows: `%APPDATA%\dctanner\pigs\config\state.json`
-
-Each entry is keyed by `<repo-name>/<worktree-name>`. Use `PIGS_CONFIG_DIR` to override the directory for testing or portable setups.
+State lives in `~/.pigs/settings.json`. Each entry is keyed by `<repo-name>/<worktree-name>`. Use `PIGS_CONFIG_DIR` to override the directory for testing or portable setups.
 
 ### Agent command
 

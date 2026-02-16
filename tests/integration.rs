@@ -37,7 +37,7 @@ impl TestContext {
             "agent": "true"
         });
         fs::write(
-            config_dir.join("state.json"),
+            config_dir.join("settings.json"),
             serde_json::to_string_pretty(&default_state).unwrap(),
         )
         .unwrap();
@@ -124,7 +124,7 @@ impl TestContext {
     }
 
     fn read_state(&self) -> serde_json::Value {
-        let state_path = self.config_dir.join("state.json");
+        let state_path = self.config_dir.join("settings.json");
         if state_path.exists() {
             let content = fs::read_to_string(state_path).unwrap();
             serde_json::from_str(&content).unwrap()
@@ -134,7 +134,7 @@ impl TestContext {
     }
 
     fn write_state(&self, state: &serde_json::Value) {
-        let state_path = self.config_dir.join("state.json");
+        let state_path = self.config_dir.join("settings.json");
         fs::write(state_path, serde_json::to_string_pretty(state).unwrap()).unwrap();
     }
 
@@ -858,7 +858,7 @@ fn test_open_from_non_git_directory() {
 
     // Create an empty state file
     let state = json!({ "worktrees": {} });
-    fs::write(config_dir.join("state.json"), state.to_string()).unwrap();
+    fs::write(config_dir.join("settings.json"), state.to_string()).unwrap();
 
     // Try to open from a non-git directory with empty worktrees
     let mut cmd = cargo_bin_cmd!("pigs");
