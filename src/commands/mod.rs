@@ -16,6 +16,7 @@ pub use add::handle_add;
 pub use checkout::handle_checkout;
 pub use clean::handle_clean;
 pub use complete::handle_complete_worktrees;
+pub use complete::handle_complete_from;
 pub use complete_linear::handle_complete_linear;
 pub use config::handle_config;
 pub use create::handle_create;

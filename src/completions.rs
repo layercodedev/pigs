@@ -44,8 +44,8 @@ _pigs() {{
     case "${{words[1]}}" in
         create)
             if [[ "$prev" == "--from" ]]; then
-                local worktrees=$(pigs complete-worktrees 2>/dev/null)
-                COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+                local targets=$(pigs complete-from 2>/dev/null)
+                COMPREPLY=($(compgen -W "$targets" -- "$cur"))
             elif [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--from -y" -- "$cur"))
             else
@@ -122,7 +122,7 @@ _pigs() {{
             # Support --from with worktree completion, and positional name
             local -a create_opts
             create_opts=(
-                '--from[Create from an existing worktree or branch]:source:_pigs_worktrees'
+                '--from[Create from an existing worktree or branch]:source:_pigs_from_targets'
                 '-y[Automatically open the worktree after creation]'
             )
             _arguments -s $create_opts '1:worktree name or Linear issue:_pigs_linear_issues'
@@ -192,6 +192,14 @@ _pigs_linear_issues() {{
     fi
 }}
 
+_pigs_from_targets() {{
+    local -a targets
+    targets=($(pigs complete-from 2>/dev/null))
+    if [[ -n "$targets" ]]; then
+        compadd -a targets
+    fi
+}}
+
 _pigs "$@"
 "#
     );
@@ -248,8 +256,12 @@ function __pigs_linear_issues
     end
 end
 
-# --from flag for create command
-complete -c pigs -n "__fish_seen_subcommand_from create" -l from -d "Create from an existing worktree or branch" -r -a "(__pigs_worktrees)"
+# --from flag for create command (completes worktrees + branches)
+function __pigs_from_targets
+    pigs complete-from 2>/dev/null
+end
+
+complete -c pigs -n "__fish_seen_subcommand_from create" -l from -d "Create from an existing worktree or branch" -r -a "(__pigs_from_targets)"
 
 # Linear issue completions for create command
 complete -c pigs -n "__fish_seen_subcommand_from create; and not __fish_seen_argument_from -l from" -a "(__pigs_linear_issues)"

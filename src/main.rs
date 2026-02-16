@@ -14,9 +14,9 @@ mod state;
 mod utils;
 
 use commands::{
-    handle_add, handle_checkout, handle_clean, handle_complete_linear, handle_config,
-    handle_create, handle_dashboard, handle_delete, handle_dir, handle_list, handle_open,
-    handle_rename,
+    handle_add, handle_checkout, handle_clean, handle_complete_from, handle_complete_linear,
+    handle_config, handle_create, handle_dashboard, handle_delete, handle_dir, handle_list,
+    handle_open, handle_rename,
 };
 
 #[derive(Parser)]
@@ -108,6 +108,9 @@ enum Commands {
         #[arg(long, default_value = "simple")]
         format: String,
     },
+    /// Output worktree names + branch names for --from completion (hidden)
+    #[command(hide = true)]
+    CompleteFrom,
     /// Output Linear issues for shell completions (hidden)
     #[command(hide = true)]
     CompleteLinear,
@@ -148,6 +151,7 @@ fn main() -> Result<()> {
         Commands::Dir { name } => handle_dir(name),
         Commands::Completions { shell } => completions::handle_completions(shell),
         Commands::CompleteWorktrees { format } => commands::handle_complete_worktrees(&format),
+        Commands::CompleteFrom => handle_complete_from(),
         Commands::CompleteLinear => handle_complete_linear(),
         Commands::Config => handle_config(),
         Commands::Dashboard { addr, no_browser } => handle_dashboard(addr, no_browser),

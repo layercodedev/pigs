@@ -1,5 +1,7 @@
 use anyhow::Result;
+use std::collections::BTreeSet;
 use std::path::Path;
+use std::process::Command;
 
 use crate::claude::get_claude_sessions;
 use crate::state::{WorktreeInfo, PigsState};
@@ -58,6 +60,40 @@ pub fn handle_complete_worktrees(format: &str) -> Result<()> {
                 println!("{}", info.name);
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Output completion candidates for `--from`: worktree names + local branch names, deduplicated.
+pub fn handle_complete_from() -> Result<()> {
+    let mut candidates = BTreeSet::new();
+
+    // Add worktree names
+    if let Ok(state) = PigsState::load() {
+        for info in state.worktrees.values() {
+            candidates.insert(info.name.clone());
+        }
+    }
+
+    // Add local branch names
+    if let Ok(output) = Command::new("git")
+        .args(["branch", "--format=%(refname:short)"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                let branch = line.trim();
+                if !branch.is_empty() {
+                    candidates.insert(branch.to_string());
+                }
+            }
+        }
+    }
+
+    for name in &candidates {
+        println!("{}", name);
     }
 
     Ok(())
