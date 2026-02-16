@@ -289,7 +289,7 @@ async fn start_live_session(
     repo: &str,
     name: &str,
 ) -> Result<Arc<SessionRuntime>, (StatusCode, String)> {
-    let state = PigsState::load().map_err(|err| {
+    let state = PigsState::load_with_local_overrides().map_err(|err| {
         eprintln!("[dashboard] failed to load state: {err:?}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -562,7 +562,7 @@ fn summarize_worktree(
 }
 
 fn load_settings_payload() -> Result<SettingsPayload> {
-    let state = PigsState::load()?;
+    let state = PigsState::load_with_local_overrides()?;
     Ok(SettingsPayload {
         editor: state.editor.clone(),
         terminal: state.shell.clone(),
@@ -925,7 +925,7 @@ fn handle_worktree_action(
     name: &str,
     action: &str,
 ) -> Result<ActionResponse, (StatusCode, String)> {
-    let state = PigsState::load().map_err(|err| {
+    let state = PigsState::load_with_local_overrides().map_err(|err| {
         eprintln!("[dashboard] failed to load state: {err:?}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,

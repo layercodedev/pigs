@@ -58,7 +58,7 @@ where
 
 /// Resolve agent command from state or default, and split into program + args.
 pub fn resolve_agent_command() -> Result<(String, Vec<String>)> {
-    let state = crate::state::PigsState::load()?;
+    let state = crate::state::PigsState::load_with_local_overrides()?;
     let cmdline = state
         .agent
         .clone()
@@ -179,7 +179,7 @@ mod tests {
             "agent": "codex"
         });
         fs::write(
-            config_dir.path().join("state.json"),
+            config_dir.path().join("settings.json"),
             serde_json::to_string_pretty(&state).unwrap(),
         )
         .unwrap();

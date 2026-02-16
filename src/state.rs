@@ -34,6 +34,45 @@ impl PigsState {
         format!("{repo_name}/{worktree_name}")
     }
 
+    /// Load global settings then overlay any local `.pigs/settings.json` found
+    /// by walking up from the current directory. Local settings override global
+    /// ones for `agent`, `editor`, and `shell`.
+    pub fn load_with_local_overrides() -> Result<Self> {
+        let mut state = Self::load()?;
+
+        if let Some(local) = Self::find_local_settings()? {
+            if local.agent.is_some() {
+                state.agent = local.agent;
+            }
+            if local.editor.is_some() {
+                state.editor = local.editor;
+            }
+            if local.shell.is_some() {
+                state.shell = local.shell;
+            }
+        }
+
+        Ok(state)
+    }
+
+    /// Search for a `.pigs/settings.json` in the current directory or any
+    /// ancestor. Returns `Ok(None)` when no local file is found.
+    fn find_local_settings() -> Result<Option<Self>> {
+        let mut dir = std::env::current_dir().ok();
+        while let Some(d) = dir {
+            let candidate = d.join(".pigs/settings.json");
+            if candidate.exists() {
+                let content = fs::read_to_string(&candidate)
+                    .with_context(|| format!("Failed to read {}", candidate.display()))?;
+                let local: Self = serde_json::from_str(&content)
+                    .with_context(|| format!("Failed to parse {}", candidate.display()))?;
+                return Ok(Some(local));
+            }
+            dir = d.parent().map(Path::to_path_buf);
+        }
+        Ok(None)
+    }
+
     pub fn load() -> Result<Self> {
         let config_path = get_config_path()?;
         if config_path.exists() {
@@ -108,27 +147,7 @@ pub fn get_state_path() -> Result<PathBuf> {
 
 fn get_config_path() -> Result<PathBuf> {
     let dir = get_config_dir()?;
-    let new_path = dir.join("settings.json");
-
-    if !new_path.exists() {
-        // Migrate from old state.json in same dir
-        let old_path = dir.join("state.json");
-        if old_path.exists() {
-            fs::rename(&old_path, &new_path).ok();
-        } else {
-            // Migrate from old macOS Application Support location
-            if let Ok(home) = std::env::var("HOME") {
-                let legacy_path = PathBuf::from(&home)
-                    .join("Library/Application Support/com.dctanner.pigs/state.json");
-                if legacy_path.exists() {
-                    fs::create_dir_all(&dir).ok();
-                    fs::rename(&legacy_path, &new_path).ok();
-                }
-            }
-        }
-    }
-
-    Ok(new_path)
+    Ok(dir.join("settings.json"))
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -139,10 +158,10 @@ pub struct RepoConfig {
 
 impl RepoConfig {
     pub fn load(repo_root: &Path) -> Result<Self> {
-        let config_path = repo_root.join(".pigs/state.json");
+        let config_path = repo_root.join(".pigs/settings.json");
         if config_path.exists() {
             let content = fs::read_to_string(&config_path)
-                .context("Failed to read repo-level .pigs/state.json")?;
+                .context("Failed to read repo-level .pigs/settings.json")?;
             Ok(serde_json::from_str(&content)?)
         } else {
             Ok(Self::default())
