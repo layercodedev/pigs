@@ -32,7 +32,7 @@ _pigs() {{
     fi
 
     # Main commands
-    local commands="linear create open delete add rename list clean dir completions"
+    local commands="linear create checkout open delete add rename list clean dir completions"
 
     # Complete main commands
     if [[ $cword -eq 1 ]]; then
@@ -59,6 +59,11 @@ _pigs() {{
                 COMPREPLY=($(compgen -W "$targets" -- "$cur"))
             elif [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--from -y" -- "$cur"))
+            fi
+            ;;
+        checkout)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "-y" -- "$cur"))
             fi
             ;;
         open|dir|delete)
@@ -97,6 +102,7 @@ _pigs() {{
     commands=(
         'linear:Create a new git worktree from a Linear issue'
         'create:Create a new git worktree'
+        'checkout:Checkout a branch or pull request into a worktree'
         'open:Open an existing worktree and launch Claude'
         'delete:Delete a worktree and clean up'
         'add:Add current worktree to pigs management'
@@ -151,6 +157,13 @@ _pigs() {{
                     fi
                     ;;
             esac
+            ;;
+        checkout)
+            if [[ "${{words[CURRENT]}}" == -* ]]; then
+                local -a checkout_opts
+                checkout_opts=('-y:Automatically open the worktree after creation')
+                _describe 'option' checkout_opts
+            fi
             ;;
         add)
             if (( CURRENT == 3 )); then
@@ -240,6 +253,7 @@ complete -c pigs -f
 # Main commands
 complete -c pigs -n "__fish_use_subcommand" -a linear -d "Create a new git worktree from a Linear issue"
 complete -c pigs -n "__fish_use_subcommand" -a create -d "Create a new git worktree"
+complete -c pigs -n "__fish_use_subcommand" -a checkout -d "Checkout a branch or pull request into a worktree"
 complete -c pigs -n "__fish_use_subcommand" -a open -d "Open an existing worktree and launch Claude"
 complete -c pigs -n "__fish_use_subcommand" -a delete -d "Delete a worktree and clean up"
 complete -c pigs -n "__fish_use_subcommand" -a add -d "Add current worktree to pigs management"
