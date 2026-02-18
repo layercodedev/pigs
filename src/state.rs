@@ -17,6 +17,7 @@ pub struct WorktreeInfo {
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct PigsState {
     // Key format: "{repo_name}/{worktree_name}"
+    #[serde(default)]
     pub worktrees: HashMap<String, WorktreeInfo>,
     // Global agent command to launch sessions (full command line string)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -57,16 +58,30 @@ impl PigsState {
 
     /// Search for a `.pigs/settings.json` in the current directory or any
     /// ancestor. Returns `Ok(None)` when no local file is found.
+    /// Skips repo-level config files that don't contain pigs state fields.
     fn find_local_settings() -> Result<Option<Self>> {
+        let global_path = get_config_path()?;
         let mut dir = std::env::current_dir().ok();
         while let Some(d) = dir {
             let candidate = d.join(".pigs/settings.json");
             if candidate.exists() {
+                // Skip the global settings file (handled separately by load())
+                if candidate.canonicalize().ok() == global_path.canonicalize().ok() {
+                    dir = d.parent().map(Path::to_path_buf);
+                    continue;
+                }
                 let content = fs::read_to_string(&candidate)
                     .with_context(|| format!("Failed to read {}", candidate.display()))?;
-                let local: Self = serde_json::from_str(&content)
-                    .with_context(|| format!("Failed to parse {}", candidate.display()))?;
-                return Ok(Some(local));
+                // Try to parse as PigsState; skip files that don't match
+                // (e.g. repo-level RepoConfig files with copy_files)
+                match serde_json::from_str::<Self>(&content) {
+                    Ok(local) => return Ok(Some(local)),
+                    Err(_) => {
+                        // Not a pigs state file, keep walking up
+                        dir = d.parent().map(Path::to_path_buf);
+                        continue;
+                    }
+                }
             }
             dir = d.parent().map(Path::to_path_buf);
         }
