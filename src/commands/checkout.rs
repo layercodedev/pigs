@@ -7,10 +7,15 @@ use colored::Colorize;
 use crate::commands::open::handle_open;
 use crate::git::{copy_files_to_worktree, execute_git, get_repo_name, update_submodules};
 use crate::input::{get_command_arg, smart_confirm};
-use crate::state::{RepoConfig, WorktreeInfo, PigsState};
+use crate::state::{PigsState, RepoConfig, WorktreeInfo};
 use crate::utils::sanitize_branch_name;
 
-pub fn handle_checkout(target: Option<String>, yes: bool, agent_args: Vec<String>) -> Result<()> {
+pub fn handle_checkout(
+    target: Option<String>,
+    yes: bool,
+    selected_agent: Option<String>,
+    agent_args: Vec<String>,
+) -> Result<()> {
     let raw_target = get_command_arg(target)?
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -25,8 +30,9 @@ pub fn handle_checkout(target: Option<String>, yes: bool, agent_args: Vec<String
 
     // For PRs, resolve the actual branch name via `gh` CLI
     let branch_name = match &checkout_target {
-        CheckoutTarget::PullRequest(pr_number) => resolve_pr_branch_name(*pr_number)
-            .unwrap_or_else(|| format!("pr/{pr_number}")),
+        CheckoutTarget::PullRequest(pr_number) => {
+            resolve_pr_branch_name(*pr_number).unwrap_or_else(|| format!("pr/{pr_number}"))
+        }
         CheckoutTarget::Branch(name) => name.clone(),
     };
     let worktree_name = sanitize_branch_name(&branch_name);
@@ -51,7 +57,7 @@ pub fn handle_checkout(target: Option<String>, yes: bool, agent_args: Vec<String
         )?;
 
         if should_open {
-            handle_open(Some(existing.name.clone()), vec![])?;
+            handle_open(Some(existing.name.clone()), selected_agent.clone(), vec![])?;
             return Ok(());
         }
 
@@ -79,24 +85,23 @@ pub fn handle_checkout(target: Option<String>, yes: bool, agent_args: Vec<String
         created_path.display()
     );
 
-    let should_open = if std::env::var("PIGS_TEST_MODE").is_ok()
-        || std::env::var("PIGS_NO_AUTO_OPEN").is_ok()
-    {
-        println!(
-            "  {} To open it, run: {} {}",
-            "💡".cyan(),
-            "pigs open".cyan(),
-            worktree_name.cyan()
-        );
-        false
-    } else if yes {
-        true
-    } else {
-        smart_confirm("Would you like to open the worktree now?", true)?
-    };
+    let should_open =
+        if std::env::var("PIGS_TEST_MODE").is_ok() || std::env::var("PIGS_NO_AUTO_OPEN").is_ok() {
+            println!(
+                "  {} To open it, run: {} {}",
+                "💡".cyan(),
+                "pigs open".cyan(),
+                worktree_name.cyan()
+            );
+            false
+        } else if yes {
+            true
+        } else {
+            smart_confirm("Would you like to open the worktree now?", true)?
+        };
 
     if should_open {
-        handle_open(Some(worktree_name), agent_args)?;
+        handle_open(Some(worktree_name), selected_agent, agent_args)?;
     } else if std::env::var("PIGS_NON_INTERACTIVE").is_err() {
         println!(
             "  {} To open it later, run: {} {}",
@@ -175,7 +180,11 @@ fn resolve_pr_branch_name(pr_number: u64) -> Option<String> {
         .filter(|output| output.status.success())
         .and_then(|output| {
             let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if branch.is_empty() { None } else { Some(branch) }
+            if branch.is_empty() {
+                None
+            } else {
+                Some(branch)
+            }
         })
 }
 

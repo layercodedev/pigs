@@ -3,7 +3,7 @@ use colored::Colorize;
 
 use crate::git::{execute_git, has_unpushed_commits, is_working_tree_clean};
 use crate::input::{get_command_arg, smart_confirm};
-use crate::state::{WorktreeInfo, PigsState};
+use crate::state::{PigsState, WorktreeInfo};
 use crate::utils::execute_in_dir;
 
 /// Represents the result of various checks performed before deletion

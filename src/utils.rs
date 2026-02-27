@@ -57,15 +57,30 @@ where
 }
 
 /// Resolve agent command from state or default, and split into program + args.
-pub fn resolve_agent_command() -> Result<(String, Vec<String>)> {
+pub fn resolve_agent_command(selected_agent: Option<&str>) -> Result<(String, Vec<String>)> {
     let state = crate::state::PigsState::load_with_local_overrides()?;
-    let cmdline = state
+    let agent_options = state
         .agent
-        .clone()
-        .unwrap_or_else(crate::state::get_default_agent);
+        .unwrap_or_else(|| vec![crate::state::get_default_agent()]);
 
+    if agent_options.is_empty() {
+        anyhow::bail!("Agent list is empty");
+    }
+
+    let command = match selected_agent
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    {
+        Some(name) => select_agent_command(&agent_options, name)?,
+        None => agent_options[0].command.clone(),
+    };
+
+    split_agent_command(&command)
+}
+
+fn split_agent_command(cmdline: &str) -> Result<(String, Vec<String>)> {
     // Use shell-style splitting to handle quotes and spaces.
-    let parts = shell_words::split(&cmdline)
+    let parts = shell_words::split(cmdline)
         .map_err(|e| anyhow::anyhow!("Invalid agent command: {} ({e})", cmdline))?;
 
     if parts.is_empty() {
@@ -75,6 +90,29 @@ pub fn resolve_agent_command() -> Result<(String, Vec<String>)> {
     let program = parts[0].clone();
     let args = parts[1..].to_vec();
     Ok((program, args))
+}
+
+fn select_agent_command(
+    agent_options: &[crate::state::AgentOption],
+    selected_agent: &str,
+) -> Result<String> {
+    if let Some(option) = agent_options
+        .iter()
+        .find(|option| option.name.eq_ignore_ascii_case(selected_agent))
+    {
+        return Ok(option.command.clone());
+    }
+
+    let available: Vec<String> = agent_options
+        .iter()
+        .map(|option| option.name.clone())
+        .collect();
+
+    anyhow::bail!(
+        "Unknown agent '{}'. Available agent names: {}",
+        selected_agent,
+        available.join(", ")
+    );
 }
 
 const CODEX_OPTIONS_WITH_VALUES: &[&str] = &[
@@ -131,8 +169,11 @@ fn codex_has_positional_arguments(args: &[String]) -> bool {
     false
 }
 
-pub fn prepare_agent_command(worktree_path: &Path) -> Result<(String, Vec<String>)> {
-    let (program, args) = resolve_agent_command()?;
+pub fn prepare_agent_command(
+    worktree_path: &Path,
+    selected_agent: Option<&str>,
+) -> Result<(String, Vec<String>)> {
+    let (program, args) = resolve_agent_command(selected_agent)?;
 
     if !program.eq_ignore_ascii_case("codex") {
         return Ok((program, args));
@@ -164,6 +205,62 @@ mod tests {
     static ENV_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 
     #[test]
+    fn resolve_agent_command_uses_first_agent_option_as_default() {
+        let _guard = ENV_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+        let config_dir = TempDir::new().unwrap();
+        fs::create_dir_all(config_dir.path()).unwrap();
+
+        let state = json!({
+            "worktrees": {},
+            "agent": [
+                { "name": "codex", "command": "codex --profile fast" },
+                { "name": "claude", "command": "claude --dangerously-skip-permissions" }
+            ]
+        });
+        fs::write(
+            config_dir.path().join("settings.json"),
+            serde_json::to_string_pretty(&state).unwrap(),
+        )
+        .unwrap();
+
+        let config_dir_str = config_dir.path().to_string_lossy().to_string();
+        temp_env::with_vars([("PIGS_CONFIG_DIR", Some(config_dir_str.as_str()))], || {
+            let (program, args) = resolve_agent_command(None).unwrap();
+            assert_eq!(program, "codex");
+            assert_eq!(args, vec!["--profile".to_string(), "fast".to_string()]);
+        });
+    }
+
+    #[test]
+    fn resolve_agent_command_selects_agent_by_name() {
+        let _guard = ENV_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+        let config_dir = TempDir::new().unwrap();
+        fs::create_dir_all(config_dir.path()).unwrap();
+
+        let state = json!({
+            "worktrees": {},
+            "agent": [
+                { "name": "claude", "command": "claude --dangerously-skip-permissions" },
+                { "name": "codex", "command": "codex --profile fast" }
+            ]
+        });
+        fs::write(
+            config_dir.path().join("settings.json"),
+            serde_json::to_string_pretty(&state).unwrap(),
+        )
+        .unwrap();
+
+        let config_dir_str = config_dir.path().to_string_lossy().to_string();
+        temp_env::with_vars([("PIGS_CONFIG_DIR", Some(config_dir_str.as_str()))], || {
+            let (program, args) = resolve_agent_command(Some("codex")).unwrap();
+            assert_eq!(program, "codex");
+            assert_eq!(args, vec!["--profile".to_string(), "fast".to_string()]);
+        });
+    }
+
+    #[test]
     fn prepare_agent_command_resumes_latest_codex_session() {
         let _guard = ENV_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap();
 
@@ -176,7 +273,9 @@ mod tests {
 
         let state = json!({
             "worktrees": {},
-            "agent": "codex"
+            "agent": [
+                { "name": "codex", "command": "codex" }
+            ]
         });
         fs::write(
             config_dir.path().join("settings.json"),
@@ -232,7 +331,7 @@ mod tests {
                 ("PIGS_CODEX_SESSIONS_DIR", Some(sessions_dir_str.as_str())),
             ],
             || {
-                let (program, args) = prepare_agent_command(&worktree_path).unwrap();
+                let (program, args) = prepare_agent_command(&worktree_path, None).unwrap();
                 assert_eq!(program, "codex");
                 assert_eq!(args, vec!["resume".to_string(), "session-123".to_string()]);
             },

@@ -262,8 +262,7 @@ pub fn copy_files_to_worktree(
             fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create directory for {rel_path}"))?;
         }
-        fs::copy(&source, &target)
-            .with_context(|| format!("Failed to copy {rel_path}"))?;
+        fs::copy(&source, &target).with_context(|| format!("Failed to copy {rel_path}"))?;
         if !quiet {
             println!("{} Copied {} to worktree", "📄".green(), rel_path);
         }

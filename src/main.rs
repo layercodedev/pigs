@@ -14,14 +14,14 @@ mod state;
 mod utils;
 
 use commands::{
-    handle_add, handle_checkout, handle_clean, handle_complete_from, handle_complete_linear,
-    handle_config, handle_create, handle_dashboard, handle_delete, handle_dir, handle_linear,
-    handle_list, handle_open, handle_rename,
+    handle_add, handle_checkout, handle_clean, handle_complete_agents, handle_complete_from,
+    handle_complete_linear, handle_config, handle_create, handle_dashboard, handle_delete,
+    handle_dir, handle_linear, handle_list, handle_open, handle_rename,
 };
 
 #[derive(Parser)]
 #[command(name = "pigs")]
-#[command(about = "Manage Claude instances with git worktrees", long_about = None)]
+#[command(about = "Manage AI agent sessions with git worktrees", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -39,6 +39,9 @@ enum Commands {
         /// Automatically confirm prompts
         #[arg(short = 'y')]
         yes: bool,
+        /// Select agent at runtime by configured agent name
+        #[arg(short = 'a', long)]
+        agent: Option<String>,
         /// Extra arguments passed to the agent command
         #[arg(last = true)]
         agent_args: Vec<String>,
@@ -53,6 +56,9 @@ enum Commands {
         /// Automatically open the worktree after creation
         #[arg(short = 'y')]
         yes: bool,
+        /// Select agent at runtime by configured agent name
+        #[arg(short = 'a', long)]
+        agent: Option<String>,
         /// Extra arguments passed to the agent command
         #[arg(last = true)]
         agent_args: Vec<String>,
@@ -64,14 +70,20 @@ enum Commands {
         /// Automatically open the worktree after creation
         #[arg(short = 'y')]
         yes: bool,
+        /// Select agent at runtime by configured agent name
+        #[arg(short = 'a', long)]
+        agent: Option<String>,
         /// Extra arguments passed to the agent command
         #[arg(last = true)]
         agent_args: Vec<String>,
     },
-    /// Open an existing worktree and launch Claude
+    /// Open an existing worktree and launch the configured agent
     Open {
         /// Name of the worktree to open (interactive selection if not provided)
         name: Option<String>,
+        /// Select agent at runtime by configured agent name
+        #[arg(short = 'a', long)]
+        agent: Option<String>,
         /// Extra arguments passed to the agent command
         #[arg(last = true)]
         agent_args: Vec<String>,
@@ -96,7 +108,7 @@ enum Commands {
         /// New name for the worktree
         new_name: String,
     },
-    /// List all active Claude instances
+    /// List all active agent sessions
     List {
         /// Output as JSON
         #[arg(long)]
@@ -125,6 +137,9 @@ enum Commands {
     /// Output worktree names + branch names for --from completion (hidden)
     #[command(hide = true)]
     CompleteFrom,
+    /// Output configured agent names for --agent completion (hidden)
+    #[command(hide = true)]
+    CompleteAgents,
     /// Output Linear issues for shell completions (hidden)
     #[command(hide = true)]
     CompleteLinear,
@@ -149,20 +164,27 @@ fn main() -> Result<()> {
             identifier,
             from,
             yes,
+            agent,
             agent_args,
-        } => handle_linear(identifier, from, yes, agent_args),
+        } => handle_linear(identifier, from, yes, agent, agent_args),
         Commands::Create {
             name,
             from,
             yes,
+            agent,
             agent_args,
-        } => handle_create(name, from, yes, agent_args),
+        } => handle_create(name, from, yes, agent, agent_args),
         Commands::Checkout {
             target,
             yes,
+            agent,
             agent_args,
-        } => handle_checkout(target, yes, agent_args),
-        Commands::Open { name, agent_args } => handle_open(name, agent_args),
+        } => handle_checkout(target, yes, agent, agent_args),
+        Commands::Open {
+            name,
+            agent,
+            agent_args,
+        } => handle_open(name, agent, agent_args),
         Commands::Delete { name, all } => handle_delete(name, all),
         Commands::Add { name } => handle_add(name),
         Commands::Rename { old_name, new_name } => handle_rename(old_name, new_name),
@@ -172,6 +194,7 @@ fn main() -> Result<()> {
         Commands::Completions { shell } => completions::handle_completions(shell),
         Commands::CompleteWorktrees { format } => commands::handle_complete_worktrees(&format),
         Commands::CompleteFrom => handle_complete_from(),
+        Commands::CompleteAgents => handle_complete_agents(),
         Commands::CompleteLinear => handle_complete_linear(),
         Commands::Config => handle_config(),
         Commands::Dashboard { addr, no_browser } => handle_dashboard(addr, no_browser),

@@ -14,7 +14,10 @@ fn setup_test_repo() -> (TempDir, String, String) {
     fs::create_dir_all(&config_dir).unwrap();
     let default_state = serde_json::json!({
         "worktrees": {},
-        "agent": "true"
+        "agent": [{
+            "name": "test",
+            "command": "true"
+        }]
     });
     fs::write(
         config_dir.join("settings.json"),
@@ -218,7 +221,7 @@ fn test_yes_doesnt_interfere_with_open() {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_pigs"));
     cmd.current_dir(&repo_path)
         .env("PIGS_CONFIG_DIR", &config_dir)
-        // agent is set to "true" in state; no need to override
+        // agent is set to "test -> true" in state; no need to override
         .args(["open", "test-yes"])
         .write_stdin("y\ny\ny\n"); // Extra yes responses that should be drained
 

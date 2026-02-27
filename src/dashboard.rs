@@ -32,7 +32,7 @@ use shell_words::split as shell_split;
 use crate::claude;
 use crate::codex;
 use crate::codex::CodexSession;
-use crate::state::{WorktreeInfo, PigsState};
+use crate::state::{PigsState, WorktreeInfo};
 use crate::utils::prepare_agent_command;
 
 const STATIC_INDEX: &str = include_str!("../dashboard/static/index.html");
@@ -352,7 +352,7 @@ fn spawn_session_blocking(
     })?;
 
     let (program, args) =
-        prepare_agent_command(&info.path).context("Failed to resolve agent command")?;
+        prepare_agent_command(&info.path, None).context("Failed to resolve agent command")?;
     let mut builder = CommandBuilder::new(program);
     for arg in args {
         builder.arg(arg);

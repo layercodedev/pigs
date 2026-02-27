@@ -5,10 +5,14 @@ use std::process::{Command, Stdio};
 
 use crate::git::{get_current_branch, get_repo_name, is_base_branch, is_in_worktree};
 use crate::input::{drain_stdin, get_command_arg, is_piped_input, smart_confirm, smart_select};
-use crate::state::{WorktreeInfo, PigsState};
+use crate::state::{PigsState, WorktreeInfo};
 use crate::utils::{prepare_agent_command, sanitize_branch_name};
 
-pub fn handle_open(name: Option<String>, agent_args: Vec<String>) -> Result<()> {
+pub fn handle_open(
+    name: Option<String>,
+    selected_agent: Option<String>,
+    agent_args: Vec<String>,
+) -> Result<()> {
     let mut state = PigsState::load()?;
 
     // Check if current path is a worktree when no name is provided
@@ -92,7 +96,8 @@ pub fn handle_open(name: Option<String>, agent_args: Vec<String>) -> Result<()> 
             }
 
             // Launch agent in current directory
-            let (program, mut args) = prepare_agent_command(&current_dir)?;
+            let (program, mut args) =
+                prepare_agent_command(&current_dir, selected_agent.as_deref())?;
             args.extend(agent_args);
             let mut cmd = Command::new(&program);
             cmd.args(&args);
@@ -164,7 +169,8 @@ pub fn handle_open(name: Option<String>, agent_args: Vec<String>) -> Result<()> 
     std::env::set_current_dir(&worktree_info.path).context("Failed to change directory")?;
 
     // Resolve global agent command
-    let (program, mut args) = prepare_agent_command(&worktree_info.path)?;
+    let (program, mut args) =
+        prepare_agent_command(&worktree_info.path, selected_agent.as_deref())?;
     args.extend(agent_args);
     let mut cmd = Command::new(&program);
     cmd.args(&args);

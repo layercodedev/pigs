@@ -4,7 +4,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::claude::get_claude_sessions;
-use crate::state::{WorktreeInfo, PigsState};
+use crate::state::{PigsState, WorktreeInfo};
 
 pub fn handle_complete_worktrees(format: &str) -> Result<()> {
     // Silently load state, return empty on any error
@@ -96,6 +96,24 @@ pub fn handle_complete_from() -> Result<()> {
         println!("{}", name);
     }
 
+    Ok(())
+}
+
+/// Output configured agent names for `--agent` completions.
+pub fn handle_complete_agents() -> Result<()> {
+    if let Ok(state) = PigsState::load_with_local_overrides() {
+        if let Some(options) = state.agent {
+            for option in options {
+                let name = option.name.trim();
+                if !name.is_empty() {
+                    println!("{name}");
+                }
+            }
+            return Ok(());
+        }
+    }
+
+    println!("{}", crate::state::get_default_agent().name);
     Ok(())
 }
 

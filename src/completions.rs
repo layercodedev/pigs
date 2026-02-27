@@ -46,8 +46,11 @@ _pigs() {{
             if [[ "$prev" == "--from" ]]; then
                 local targets=$(pigs complete-from 2>/dev/null)
                 COMPREPLY=($(compgen -W "$targets" -- "$cur"))
+            elif [[ "$prev" == "--agent" || "$prev" == "-a" ]]; then
+                local agents=$(pigs complete-agents 2>/dev/null)
+                COMPREPLY=($(compgen -W "$agents" -- "$cur"))
             elif [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--from -y" -- "$cur"))
+                COMPREPLY=($(compgen -W "--from --agent -a -y" -- "$cur"))
             else
                 local linear_issues=$(pigs complete-linear 2>/dev/null | cut -f1)
                 COMPREPLY=($(compgen -W "$linear_issues" -- "$cur"))
@@ -57,16 +60,34 @@ _pigs() {{
             if [[ "$prev" == "--from" ]]; then
                 local targets=$(pigs complete-from 2>/dev/null)
                 COMPREPLY=($(compgen -W "$targets" -- "$cur"))
+            elif [[ "$prev" == "--agent" || "$prev" == "-a" ]]; then
+                local agents=$(pigs complete-agents 2>/dev/null)
+                COMPREPLY=($(compgen -W "$agents" -- "$cur"))
             elif [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "--from -y" -- "$cur"))
+                COMPREPLY=($(compgen -W "--from --agent -a -y" -- "$cur"))
             fi
             ;;
         checkout)
-            if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "-y" -- "$cur"))
+            if [[ "$prev" == "--agent" || "$prev" == "-a" ]]; then
+                local agents=$(pigs complete-agents 2>/dev/null)
+                COMPREPLY=($(compgen -W "$agents" -- "$cur"))
+            elif [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--agent -a -y" -- "$cur"))
             fi
             ;;
-        open|dir|delete)
+        open)
+            if [[ "$prev" == "--agent" || "$prev" == "-a" ]]; then
+                local agents=$(pigs complete-agents 2>/dev/null)
+                COMPREPLY=($(compgen -W "$agents" -- "$cur"))
+            elif [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--agent -a" -- "$cur"))
+            elif [[ $cword -eq 2 ]]; then
+                # Get worktree names for completion
+                local worktrees=$(pigs complete-worktrees 2>/dev/null)
+                COMPREPLY=($(compgen -W "$worktrees" -- "$cur"))
+            fi
+            ;;
+        dir|delete)
             if [[ $cword -eq 2 ]]; then
                 # Get worktree names for completion
                 local worktrees=$(pigs complete-worktrees 2>/dev/null)
@@ -103,11 +124,11 @@ _pigs() {{
         'linear:Create a new git worktree from a Linear issue'
         'create:Create a new git worktree'
         'checkout:Checkout a branch or pull request into a worktree'
-        'open:Open an existing worktree and launch Claude'
+        'open:Open an existing worktree and launch agent'
         'delete:Delete a worktree and clean up'
         'add:Add current worktree to pigs management'
         'rename:Rename a worktree'
-        'list:List all active Claude instances'
+        'list:List all active agent sessions'
         'clean:Clean up invalid worktrees from state'
         'dir:Get the directory path of a worktree'
         'completions:Generate shell completions'
@@ -120,7 +141,21 @@ _pigs() {{
     fi
 
     case "${{words[2]}}" in
-        open|dir|delete)
+        open)
+            case "${{words[CURRENT-1]}}" in
+                --agent|-a) _pigs_agents ;;
+                *)
+                    if [[ "${{words[CURRENT]}}" == -* ]]; then
+                        local -a open_opts
+                        open_opts=('-a:Select agent at runtime' '--agent:Select agent at runtime')
+                        _describe 'option' open_opts
+                    elif (( CURRENT == 3 )); then
+                        _pigs_worktrees
+                    fi
+                    ;;
+            esac
+            ;;
+        dir|delete)
             if (( CURRENT == 3 )); then
                 _pigs_worktrees
             fi
@@ -135,10 +170,11 @@ _pigs() {{
         linear)
             case "${{words[CURRENT-1]}}" in
                 --from) _pigs_from_targets ;;
+                --agent|-a) _pigs_agents ;;
                 *)
                     if [[ "${{words[CURRENT]}}" == -* ]]; then
                         local -a linear_opts
-                        linear_opts=('--from:Create from an existing worktree or branch' '-y:Automatically confirm prompts')
+                        linear_opts=('--from:Create from an existing worktree or branch' '-a:Select agent at runtime' '--agent:Select agent at runtime' '-y:Automatically confirm prompts')
                         _describe 'option' linear_opts
                     else
                         _pigs_linear_issues
@@ -149,21 +185,27 @@ _pigs() {{
         create)
             case "${{words[CURRENT-1]}}" in
                 --from) _pigs_from_targets ;;
+                --agent|-a) _pigs_agents ;;
                 *)
                     if [[ "${{words[CURRENT]}}" == -* ]]; then
                         local -a create_opts
-                        create_opts=('--from:Create from an existing worktree or branch' '-y:Automatically open after creation')
+                        create_opts=('--from:Create from an existing worktree or branch' '-a:Select agent at runtime' '--agent:Select agent at runtime' '-y:Automatically open after creation')
                         _describe 'option' create_opts
                     fi
                     ;;
             esac
             ;;
         checkout)
-            if [[ "${{words[CURRENT]}}" == -* ]]; then
-                local -a checkout_opts
-                checkout_opts=('-y:Automatically open the worktree after creation')
-                _describe 'option' checkout_opts
-            fi
+            case "${{words[CURRENT-1]}}" in
+                --agent|-a) _pigs_agents ;;
+                *)
+                    if [[ "${{words[CURRENT]}}" == -* ]]; then
+                        local -a checkout_opts
+                        checkout_opts=('-a:Select agent at runtime' '--agent:Select agent at runtime' '-y:Automatically open the worktree after creation')
+                        _describe 'option' checkout_opts
+                    fi
+                    ;;
+            esac
             ;;
         add)
             if (( CURRENT == 3 )); then
@@ -238,6 +280,14 @@ _pigs_from_targets() {{
     fi
 }}
 
+_pigs_agents() {{
+    local -a agents
+    agents=($(pigs complete-agents 2>/dev/null))
+    if [[ -n "$agents" ]]; then
+        compadd -a agents
+    fi
+}}
+
 _pigs "$@"
 "#
     );
@@ -254,11 +304,11 @@ complete -c pigs -f
 complete -c pigs -n "__fish_use_subcommand" -a linear -d "Create a new git worktree from a Linear issue"
 complete -c pigs -n "__fish_use_subcommand" -a create -d "Create a new git worktree"
 complete -c pigs -n "__fish_use_subcommand" -a checkout -d "Checkout a branch or pull request into a worktree"
-complete -c pigs -n "__fish_use_subcommand" -a open -d "Open an existing worktree and launch Claude"
+complete -c pigs -n "__fish_use_subcommand" -a open -d "Open an existing worktree and launch agent"
 complete -c pigs -n "__fish_use_subcommand" -a delete -d "Delete a worktree and clean up"
 complete -c pigs -n "__fish_use_subcommand" -a add -d "Add current worktree to pigs management"
 complete -c pigs -n "__fish_use_subcommand" -a rename -d "Rename a worktree"
-complete -c pigs -n "__fish_use_subcommand" -a list -d "List all active Claude instances"
+complete -c pigs -n "__fish_use_subcommand" -a list -d "List all active agent sessions"
 complete -c pigs -n "__fish_use_subcommand" -a clean -d "Clean up invalid worktrees from state"
 complete -c pigs -n "__fish_use_subcommand" -a dir -d "Get the directory path of a worktree"
 complete -c pigs -n "__fish_use_subcommand" -a completions -d "Generate shell completions"
@@ -301,11 +351,20 @@ function __pigs_from_targets
     pigs complete-from 2>/dev/null
 end
 
+function __pigs_agents
+    pigs complete-agents 2>/dev/null
+end
+
 complete -c pigs -n "__fish_seen_subcommand_from create" -l from -d "Create from an existing worktree or branch" -r -a "(__pigs_from_targets)"
+complete -c pigs -n "__fish_seen_subcommand_from create" -s a -l agent -d "Select agent at runtime" -r -a "(__pigs_agents)"
 
 # Linear command: --from flag and issue completions
 complete -c pigs -n "__fish_seen_subcommand_from linear" -l from -d "Create from an existing worktree or branch" -r -a "(__pigs_from_targets)"
+complete -c pigs -n "__fish_seen_subcommand_from linear" -s a -l agent -d "Select agent at runtime" -r -a "(__pigs_agents)"
 complete -c pigs -n "__fish_seen_subcommand_from linear; and not __fish_seen_argument_from -l from" -a "(__pigs_linear_issues)"
+
+# Runtime agent flag on open/checkout
+complete -c pigs -n "__fish_seen_subcommand_from open checkout" -s a -l agent -d "Select agent at runtime" -r -a "(__pigs_agents)"
 
 # Shell completions for completions command
 complete -c pigs -n "__fish_seen_subcommand_from completions" -a "bash zsh fish"

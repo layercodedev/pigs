@@ -9,6 +9,7 @@ pub fn handle_linear(
     identifier: Option<String>,
     from: Option<String>,
     yes: bool,
+    selected_agent: Option<String>,
     mut agent_args: Vec<String>,
 ) -> Result<()> {
     let identifier = match get_command_arg(identifier)? {
@@ -18,18 +19,15 @@ pub fn handle_linear(
             std::env::var("LINEAR_API_KEY")
                 .context("LINEAR_API_KEY environment variable is not set")?;
 
-            let issues = linear::fetch_my_issues()
-                .context("Failed to fetch Linear issues")?;
+            let issues = linear::fetch_my_issues().context("Failed to fetch Linear issues")?;
 
             if issues.is_empty() {
                 anyhow::bail!("No assigned issues found in Linear");
             }
 
-            let selection = smart_select(
-                "Select a Linear issue",
-                &issues,
-                |issue| format!("{} {}", issue.identifier, issue.title),
-            )?;
+            let selection = smart_select("Select a Linear issue", &issues, |issue| {
+                format!("{} {}", issue.identifier, issue.title)
+            })?;
 
             match selection {
                 Some(index) => issues[index].identifier.clone(),
@@ -39,11 +37,13 @@ pub fn handle_linear(
     };
 
     if !linear::is_linear_task_id(&identifier) {
-        anyhow::bail!("'{}' is not a valid Linear task ID (expected format: ENG-123)", identifier);
+        anyhow::bail!(
+            "'{}' is not a valid Linear task ID (expected format: ENG-123)",
+            identifier
+        );
     }
 
-    std::env::var("LINEAR_API_KEY")
-        .context("LINEAR_API_KEY environment variable is not set")?;
+    std::env::var("LINEAR_API_KEY").context("LINEAR_API_KEY environment variable is not set")?;
 
     let issue = linear::fetch_issue(&identifier)?;
 
@@ -65,11 +65,7 @@ pub fn handle_linear(
                 "{} Issue set to In Progress and assigned to you",
                 "✅".green()
             ),
-            Err(e) => eprintln!(
-                "{} Failed to update issue status: {}",
-                "⚠️".yellow(),
-                e
-            ),
+            Err(e) => eprintln!("{} Failed to update issue status: {}", "⚠️".yellow(), e),
         }
     }
 
@@ -80,5 +76,11 @@ pub fn handle_linear(
     }
     agent_args.push(prompt);
 
-    handle_create(Some(issue.branch_name), from, yes, agent_args)
+    handle_create(
+        Some(issue.branch_name),
+        from,
+        yes,
+        selected_agent,
+        agent_args,
+    )
 }

@@ -4,7 +4,7 @@ use colored::Colorize;
 use std::fs;
 
 use crate::git::{get_current_branch, get_repo_name, is_in_worktree};
-use crate::state::{WorktreeInfo, PigsState};
+use crate::state::{PigsState, WorktreeInfo};
 use crate::utils::sanitize_branch_name;
 
 pub fn handle_add(name: Option<String>) -> Result<()> {

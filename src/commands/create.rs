@@ -9,16 +9,17 @@ use crate::git::{
     update_submodules,
 };
 use crate::input::{get_command_arg, smart_confirm};
-use crate::state::{RepoConfig, WorktreeInfo, PigsState};
+use crate::state::{PigsState, RepoConfig, WorktreeInfo};
 use crate::utils::{generate_random_name, sanitize_branch_name};
 
 pub fn handle_create(
     name: Option<String>,
     from: Option<String>,
     yes: bool,
+    selected_agent: Option<String>,
     agent_args: Vec<String>,
 ) -> Result<()> {
-    handle_create_in_dir(name, None, from, yes, agent_args)
+    handle_create_in_dir(name, None, from, yes, selected_agent, agent_args)
 }
 
 pub fn handle_create_in_dir(
@@ -26,9 +27,18 @@ pub fn handle_create_in_dir(
     repo_path: Option<PathBuf>,
     from: Option<String>,
     yes: bool,
+    selected_agent: Option<String>,
     agent_args: Vec<String>,
 ) -> Result<()> {
-    handle_create_in_dir_quiet(name, repo_path, from, false, yes, agent_args)?;
+    handle_create_in_dir_quiet(
+        name,
+        repo_path,
+        from,
+        false,
+        yes,
+        selected_agent,
+        agent_args,
+    )?;
     Ok(())
 }
 
@@ -39,6 +49,7 @@ pub fn handle_create_in_dir_quiet(
     from: Option<String>,
     quiet: bool,
     yes: bool,
+    selected_agent: Option<String>,
     agent_args: Vec<String>,
 ) -> Result<String> {
     // Helper to execute git in the right directory using git -C
@@ -312,7 +323,11 @@ pub fn handle_create_in_dir_quiet(
         };
 
         if should_open {
-            handle_open(Some(worktree_name.clone()), agent_args)?;
+            handle_open(
+                Some(worktree_name.clone()),
+                selected_agent.clone(),
+                agent_args,
+            )?;
         } else if std::env::var("PIGS_NON_INTERACTIVE").is_err() {
             println!(
                 "  {} To open it later, run: {} {}",
@@ -363,13 +378,7 @@ fn resolve_from_target(
     }
 
     // Fall back to raw branch name
-    if exec_git(&[
-        "show-ref",
-        "--verify",
-        &format!("refs/heads/{}", target),
-    ])
-    .is_ok()
-    {
+    if exec_git(&["show-ref", "--verify", &format!("refs/heads/{}", target)]).is_ok() {
         return Ok(target.to_string());
     }
 

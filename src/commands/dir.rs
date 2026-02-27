@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::input::{get_command_arg, smart_select};
-use crate::state::{WorktreeInfo, PigsState};
+use crate::state::{PigsState, WorktreeInfo};
 
 pub fn handle_dir(name: Option<String>) -> Result<()> {
     let state = PigsState::load()?;

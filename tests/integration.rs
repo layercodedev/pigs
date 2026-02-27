@@ -34,7 +34,10 @@ impl TestContext {
         fs::create_dir_all(&config_dir).unwrap();
         let default_state = json!({
             "worktrees": {},
-            "agent": "true"
+            "agent": [{
+                "name": "test",
+                "command": "true"
+            }]
         });
         fs::write(
             config_dir.join("settings.json"),
@@ -558,10 +561,7 @@ fn test_add_without_name() {
     let auto_worktree = ctx.temp_dir.path().join("test-repo-auto");
 
     // Add without specifying name (should use branch name)
-    let output = ctx
-        .pigs_in_dir(&auto_worktree, &["add"])
-        .assert()
-        .success();
+    let output = ctx.pigs_in_dir(&auto_worktree, &["add"]).assert().success();
 
     let stdout = String::from_utf8_lossy(&output.get_output().stdout);
     assert!(stdout.contains("Adding worktree") || stdout.contains("added successfully"));
@@ -955,11 +955,7 @@ fn test_create_existing_git_worktree() {
     // Verify pigs state is still empty
     let state = ctx.read_state();
     if let Some(worktrees) = state["worktrees"].as_object() {
-        assert_eq!(
-            worktrees.len(),
-            0,
-            "Should have no worktrees in pigs state"
-        );
+        assert_eq!(worktrees.len(), 0, "Should have no worktrees in pigs state");
     }
 }
 
@@ -982,11 +978,7 @@ fn test_create_existing_directory() {
     // Verify pigs state is still empty
     let state = ctx.read_state();
     if let Some(worktrees) = state["worktrees"].as_object() {
-        assert_eq!(
-            worktrees.len(),
-            0,
-            "Should have no worktrees in pigs state"
-        );
+        assert_eq!(worktrees.len(), 0, "Should have no worktrees in pigs state");
     }
 }
 
@@ -1083,9 +1075,7 @@ fn test_delete_with_slash_in_branch_name() {
     let ctx = TestContext::new("test-repo");
 
     // Create worktree with branch name containing slash
-    ctx.pigs(&["create", "feature/awesome"])
-        .assert()
-        .success();
+    ctx.pigs(&["create", "feature/awesome"]).assert().success();
 
     // Verify worktree exists with sanitized name
     assert!(ctx.worktree_exists("feature-awesome"));

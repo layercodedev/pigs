@@ -14,14 +14,20 @@ pub struct WorktreeInfo {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentOption {
+    pub name: String,
+    pub command: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct PigsState {
     // Key format: "{repo_name}/{worktree_name}"
     #[serde(default)]
     pub worktrees: HashMap<String, WorktreeInfo>,
-    // Global agent command to launch sessions (full command line string)
+    // Global agent options to launch sessions (first entry is default)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    pub agent: Option<Vec<AgentOption>>,
     // Preferred editor command (full command line string)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub editor: Option<String>,
@@ -184,8 +190,10 @@ impl RepoConfig {
     }
 }
 
-/// Resolve the agent command from state with a sensible default.
-/// Returns the full command line string (not split).
-pub fn get_default_agent() -> String {
-    "claude --dangerously-skip-permissions".to_string()
+/// Resolve default agent option when no config is present.
+pub fn get_default_agent() -> AgentOption {
+    AgentOption {
+        name: "claude".to_string(),
+        command: "claude --dangerously-skip-permissions".to_string(),
+    }
 }

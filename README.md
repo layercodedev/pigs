@@ -10,7 +10,7 @@ pigs is based on [xlaude](https://github.com/Xuanwo/xlaude), originally created 
 
 - **Worktree-native workflow** -- every feature branch lives in `../<repo>-<worktree>` with automatic branch creation, sanitized names, and submodule updates.
 - **Session awareness** -- `list` reads Claude (`~/.claude/projects`) and Codex (`~/.codex/sessions`) logs to surface the last user prompt and activity timestamps per worktree.
-- **Agent agnostic** -- configure a single `agent` command (default `claude --dangerously-skip-permissions`). When that command is `codex`, pigs auto-appends `resume <session-id>` matching the worktree.
+- **Agent agnostic** -- configure one or more `agent` commands (default `claude --dangerously-skip-permissions`). When the selected command is `codex`, pigs auto-appends `resume <session-id>` matching the worktree.
 - **Automation ready** -- every subcommand accepts piped input, honors `PIGS_YES`/`PIGS_NON_INTERACTIVE`, and exposes a hidden completion helper for shell integration.
 - **Dashboard** -- embedded web dashboard for managing worktrees, launching agents, and monitoring sessions from a browser.
 - **Branch from anywhere** -- `create --from <worktree|branch>` lets you branch off any existing worktree or branch, not just the base branch.
@@ -32,8 +32,28 @@ cargo install --git https://github.com/layercodedev/pigs
 ### Prerequisites
 
 - Git >= 2.36 (for worktree support).
-- Claude CLI or any other agent command you plan to run.
+- Codex CLI, Claude CLI, or any other agent command you plan to run.
 - Optional: GitHub CLI (`gh`) so `delete` can detect merged PRs after squash merges.
+
+## Use Codex Instead Of Claude
+
+Configure Codex as an available runtime agent:
+
+1. Run `pigs config` to open `~/.pigs/settings.json`.
+2. Set the top-level `agent` field to an ordered list of named options:
+
+```json
+{
+  "agent": [
+    { "name": "claude", "command": "claude --dangerously-skip-permissions" },
+    { "name": "codex", "command": "codex --yolo" }
+  ]
+}
+```
+
+3. Save the file, then run `pigs open -a codex <worktree-name>`.
+
+When the selected program is `codex` (with no positional args), pigs automatically finds the latest matching session in `~/.codex/sessions` and runs `codex resume <session-id>`.
 
 ## Shell completions
 
@@ -76,19 +96,24 @@ State lives in `~/.pigs/settings.json`. Each entry is keyed by `<repo-name>/<wor
 
 ### Agent command
 
-Set the global `agent` field to the exact command line pigs should launch for every worktree. Example:
+Set the global `agent` field to an array of objects. The first entry is the default. Example:
 
 ```json
 {
-  "agent": "codex --dangerously-bypass-approvals-and-sandbox",
+  "agent": [
+    { "name": "claude", "command": "claude --dangerously-skip-permissions" },
+    { "name": "codex", "command": "codex --yolo" }
+  ],
   "worktrees": {
     "repo/feature": { /* ... */ }
   }
 }
 ```
 
-- Default value: `claude --dangerously-skip-permissions`.
-- The command is split with shell-style rules, so quotes are supported. Pipelines or redirects should live in a wrapper script.
+- If `agent` is omitted, pigs uses a default single option: `{ "name": "claude", "command": "claude --dangerously-skip-permissions" }`.
+- Older `agent` formats (string or string array) are not supported; update your config to object entries.
+- Commands are split with shell-style rules, so quotes are supported. Pipelines or redirects should live in a wrapper script.
+- Runtime selection is supported with `--agent` / `-a` on `open`, `create`, `checkout`, and `linear`. Pass the configured `name` (for example `codex` or `claude`).
 - When the program name is `codex` and no positional arguments were supplied, pigs will locate the latest session under `~/.codex/sessions` (or `PIGS_CODEX_SESSIONS_DIR`) whose `cwd` matches the worktree and automatically append `resume <session-id>`.
 
 ### Worktree creation defaults
@@ -100,13 +125,14 @@ Set the global `agent` field to the exact command line pigs should launch for ev
 
 ## Command reference
 
-### `pigs linear <issue-id> [--from <worktree|branch>] [-y] [-- <agent-args>]`
+### `pigs linear <issue-id> [--from <worktree|branch>] [-y] [-a|--agent <name>] [-- <agent-args>]`
 
 - Takes a Linear issue ID (e.g. `ENG-123`), fetches the issue title and description, and creates a worktree with the branch name Linear generates.
 - Prompts to set the issue to "In Progress" and assign it to you.
 - Requires `LINEAR_API_KEY` environment variable (a Linear personal API key).
 - Shell completions for issue IDs are provided — `pigs linear <tab>` shows your Todo and Backlog issues.
 - Delegates to `create` under the hood, so all `--from` and `-y` flags work the same way.
+- `-a`, `--agent` picks which configured agent command to use for this run.
 
 ```bash
 export LINEAR_API_KEY=lin_api_...
@@ -114,12 +140,13 @@ pigs linear ENG-123
 pigs linear ENG-456 --from existing-worktree
 ```
 
-### `pigs create [name] [--from <worktree|branch>] [-y] [-- <agent-args>]`
+### `pigs create [name] [--from <worktree|branch>] [-y] [-a|--agent <name>] [-- <agent-args>]`
 
 - Must be run from a base branch (`main`, `master`, `develop`, or the remote default), unless `--from` is used.
 - `--from` creates a new worktree branching from an existing worktree (looked up in pigs state) or a local/remote branch.
 - Without a name, pigs selects a random BIP39 word; set `PIGS_TEST_SEED` for deterministic names in CI.
 - `-y` automatically opens the worktree after creation without prompting.
+- `-a`, `--agent` picks which configured agent command to use when auto-opening the worktree.
 - `-- <agent-args>` passes extra arguments through to the agent command.
 - Rejects duplicate worktree directories or existing state entries.
 - Offers to open the new worktree unless `PIGS_NO_AUTO_OPEN` or `PIGS_TEST_MODE` is set.
@@ -130,17 +157,19 @@ pigs create fix-batch --from ingestion-batch
 pigs create -y my-feature -- --model opus
 ```
 
-### `pigs checkout <branch | pr-number> [-y] [-- <agent-args>]`
+### `pigs checkout <branch | pr-number> [-y] [-a|--agent <name>] [-- <agent-args>]`
 
 - Accepts either a branch name or a GitHub pull request number (with or without `#`).
 - For PR numbers, resolves the actual branch name via `gh pr view` for a cleaner worktree name (falls back to `pr/<n>` if `gh` is unavailable).
 - Ensures the branch exists locally by fetching `origin/<branch>` when missing.
 - If the branch already has a managed worktree, pigs offers to open it instead of duplicating the environment.
 - `-y` automatically opens the worktree after checkout.
+- `-a`, `--agent` picks which configured agent command to use when opening.
 
-### `pigs open [name] [-- <agent-args>]`
+### `pigs open [name] [-a|--agent <name>] [-- <agent-args>]`
 
 - With a name, finds the corresponding worktree across all repositories and launches the configured agent.
+- `-a`, `--agent` overrides the default configured agent for this run.
 - Without a name and while standing inside a non-base worktree, it reuses the current directory. If the worktree is not tracked yet, pigs offers to add it to `state.json`.
 - Otherwise, presents an interactive selector or honors piped input.
 - Every environment variable from the parent shell is forwarded to the agent process. When stdin is piped into `pigs`, it is drained and not passed to the agent to avoid stuck sessions.

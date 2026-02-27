@@ -53,13 +53,8 @@ pub fn fetch_issue(identifier: &str) -> Result<LinearIssue> {
     }
 
     Ok(LinearIssue {
-        title: issue["title"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
-        description: issue["description"]
-            .as_str()
-            .map(String::from),
+        title: issue["title"].as_str().unwrap_or_default().to_string(),
+        description: issue["description"].as_str().map(String::from),
         branch_name: issue["branchName"]
             .as_str()
             .context("Linear issue has no branch name")?
@@ -125,9 +120,7 @@ pub fn start_issue(identifier: &str) -> Result<()> {
         anyhow::bail!("Issue '{}' not found in Linear", identifier);
     }
 
-    let issue_id = issue["id"]
-        .as_str()
-        .context("Issue has no id")?;
+    let issue_id = issue["id"].as_str().context("Issue has no id")?;
 
     let started_state_id = issue["team"]["states"]["nodes"]
         .as_array()
