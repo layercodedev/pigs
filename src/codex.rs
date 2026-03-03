@@ -13,6 +13,7 @@ pub struct CodexSession {
     pub cwd: PathBuf,
     pub last_timestamp: Option<DateTime<Utc>>,
     pub last_user_message: Option<String>,
+    pub is_subagent: bool,
 }
 
 fn sessions_root() -> Option<PathBuf> {
@@ -119,6 +120,10 @@ fn parse_session_file(path: &Path) -> Result<Option<CodexSession>> {
         .unwrap_or_default();
     let cwd = PathBuf::from(cwd_str);
 
+    let is_subagent = payload
+        .get("source")
+        .is_some_and(|v| v.is_object() && v.get("subagent").is_some());
+
     let start_timestamp = payload
         .get("timestamp")
         .and_then(|v| v.as_str())
@@ -177,6 +182,7 @@ fn parse_session_file(path: &Path) -> Result<Option<CodexSession>> {
         cwd,
         last_timestamp,
         last_user_message,
+        is_subagent,
     }))
 }
 
@@ -263,6 +269,10 @@ pub fn find_latest_session(worktree_path: &Path) -> Result<Option<CodexSession>>
         let Some(session) = parse_session_file(&file)? else {
             continue;
         };
+
+        if session.is_subagent {
+            continue;
+        }
 
         if matches_worktree(&session.cwd, &target_canonical, worktree_path) {
             return Ok(Some(session));
