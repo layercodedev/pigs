@@ -12,6 +12,7 @@ pub mod linear;
 pub mod list;
 pub mod open;
 pub mod rename;
+pub mod review;
 
 pub use add::handle_add;
 pub use checkout::handle_checkout;
@@ -29,3 +30,4 @@ pub use linear::handle_linear;
 pub use list::handle_list;
 pub use open::handle_open;
 pub use rename::handle_rename;
+pub use review::handle_review;

@@ -16,7 +16,7 @@ mod utils;
 use commands::{
     handle_add, handle_checkout, handle_clean, handle_complete_agents, handle_complete_from,
     handle_complete_linear, handle_config, handle_create, handle_dashboard, handle_delete,
-    handle_dir, handle_linear, handle_list, handle_open, handle_rename,
+    handle_dir, handle_linear, handle_list, handle_open, handle_rename, handle_review,
 };
 
 #[derive(Parser)]
@@ -76,6 +76,14 @@ enum Commands {
         /// Extra arguments passed to the agent command
         #[arg(last = true)]
         agent_args: Vec<String>,
+    },
+    /// Review a PR: stages all branch changes against a base branch for browsing
+    Review {
+        /// Branch name, pull request number, 'finish', or 'abort'
+        target: Option<String>,
+        /// Base branch to diff against (default: develop)
+        #[arg(long, default_value = "develop")]
+        base: Option<String>,
     },
     /// Open an existing worktree and launch the configured agent
     Open {
@@ -180,6 +188,7 @@ fn main() -> Result<()> {
             agent,
             agent_args,
         } => handle_checkout(target, yes, agent, agent_args),
+        Commands::Review { target, base } => handle_review(target, base),
         Commands::Open {
             name,
             agent,

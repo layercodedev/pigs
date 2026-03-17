@@ -32,7 +32,7 @@ _pigs() {{
     fi
 
     # Main commands
-    local commands="linear create checkout open delete add rename list clean dir completions"
+    local commands="linear create checkout review open delete add rename list clean dir completions"
 
     # Complete main commands
     if [[ $cword -eq 1 ]]; then
@@ -73,6 +73,13 @@ _pigs() {{
                 COMPREPLY=($(compgen -W "$agents" -- "$cur"))
             elif [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "--agent -a -y" -- "$cur"))
+            fi
+            ;;
+        review)
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "--base" -- "$cur"))
+            elif [[ $cword -eq 2 ]]; then
+                COMPREPLY=($(compgen -W "finish abort" -- "$cur"))
             fi
             ;;
         open)
@@ -124,6 +131,7 @@ _pigs() {{
         'linear:Create a new git worktree from a Linear issue'
         'create:Create a new git worktree'
         'checkout:Checkout a branch or pull request into a worktree'
+        'review:Review a PR with all changes staged for browsing'
         'open:Open an existing worktree and launch agent'
         'delete:Delete a worktree and clean up'
         'add:Add current worktree to pigs management'
@@ -206,6 +214,15 @@ _pigs() {{
                     fi
                     ;;
             esac
+            ;;
+        review)
+            if [[ "${{words[CURRENT]}}" == -* ]]; then
+                local -a review_opts
+                review_opts=('--base:Base branch to diff against (default: develop)')
+                _describe 'option' review_opts
+            elif (( CURRENT == 3 )); then
+                _alternative 'args:subcommand:(finish abort)'
+            fi
             ;;
         add)
             if (( CURRENT == 3 )); then
@@ -304,6 +321,7 @@ complete -c pigs -f
 complete -c pigs -n "__fish_use_subcommand" -a linear -d "Create a new git worktree from a Linear issue"
 complete -c pigs -n "__fish_use_subcommand" -a create -d "Create a new git worktree"
 complete -c pigs -n "__fish_use_subcommand" -a checkout -d "Checkout a branch or pull request into a worktree"
+complete -c pigs -n "__fish_use_subcommand" -a review -d "Review a PR with all changes staged for browsing"
 complete -c pigs -n "__fish_use_subcommand" -a open -d "Open an existing worktree and launch agent"
 complete -c pigs -n "__fish_use_subcommand" -a delete -d "Delete a worktree and clean up"
 complete -c pigs -n "__fish_use_subcommand" -a add -d "Add current worktree to pigs management"
@@ -362,6 +380,11 @@ complete -c pigs -n "__fish_seen_subcommand_from create" -s a -l agent -d "Selec
 complete -c pigs -n "__fish_seen_subcommand_from linear" -l from -d "Create from an existing worktree or branch" -r -a "(__pigs_from_targets)"
 complete -c pigs -n "__fish_seen_subcommand_from linear" -s a -l agent -d "Select agent at runtime" -r -a "(__pigs_agents)"
 complete -c pigs -n "__fish_seen_subcommand_from linear; and not __fish_seen_argument_from -l from" -a "(__pigs_linear_issues)"
+
+# Review command completions
+complete -c pigs -n "__fish_seen_subcommand_from review" -a finish -d "Exit review mode and preserve edits"
+complete -c pigs -n "__fish_seen_subcommand_from review" -a abort -d "Exit review mode and discard edits"
+complete -c pigs -n "__fish_seen_subcommand_from review" -l base -d "Base branch to diff against" -r
 
 # Runtime agent flag on open/checkout
 complete -c pigs -n "__fish_seen_subcommand_from open checkout" -s a -l agent -d "Select agent at runtime" -r -a "(__pigs_agents)"
