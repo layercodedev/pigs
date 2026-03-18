@@ -100,9 +100,9 @@ pub fn start_issue(identifier: &str) -> Result<()> {
     let api_key = std::env::var("LINEAR_API_KEY")
         .context("LINEAR_API_KEY environment variable is not set")?;
 
-    // First, fetch the issue's team and find the "started" workflow state
+    // First, fetch the issue's team and find the workflow state containing "Progress"
     let query = format!(
-        r#"{{"query":"{{ issue(id: \"{}\") {{ id team {{ states {{ nodes {{ id type }} }} }} }} }}"}}"#,
+        r#"{{"query":"{{ issue(id: \"{}\") {{ id team {{ states {{ nodes {{ id name type }} }} }} }} }}"}}"#,
         identifier
     );
 
@@ -122,11 +122,24 @@ pub fn start_issue(identifier: &str) -> Result<()> {
 
     let issue_id = issue["id"].as_str().context("Issue has no id")?;
 
-    let started_state_id = issue["team"]["states"]["nodes"]
+    let states = issue["team"]["states"]["nodes"]
         .as_array()
-        .context("No workflow states found")?
+        .context("No workflow states found")?;
+
+    let started_states: Vec<&serde_json::Value> = states
         .iter()
-        .find(|s| s["type"].as_str() == Some("started"))
+        .filter(|s| s["type"].as_str() == Some("started"))
+        .collect();
+
+    let progress_state_id = started_states
+        .iter()
+        .find(|s| {
+            s["name"]
+                .as_str()
+                .map(|n| n.contains("Progress"))
+                .unwrap_or(false)
+        })
+        .or(started_states.first())
         .and_then(|s| s["id"].as_str())
         .context("No 'started' workflow state found for this team")?;
 
@@ -145,10 +158,10 @@ pub fn start_issue(identifier: &str) -> Result<()> {
         .as_str()
         .context("Failed to get viewer ID")?;
 
-    // Mutate: set state to "started" and assign to viewer
+    // Mutate: set state to "In Progress" and assign to viewer
     let mutation = format!(
         r#"{{"query":"mutation {{ issueUpdate(id: \"{}\", input: {{ stateId: \"{}\", assigneeId: \"{}\" }}) {{ success }} }}"}}"#,
-        issue_id, started_state_id, viewer_id
+        issue_id, progress_state_id, viewer_id
     );
 
     let mutate_response: serde_json::Value = ureq::post(LINEAR_API_URL)
