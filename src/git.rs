@@ -271,6 +271,31 @@ pub fn copy_files_to_worktree(
     Ok(())
 }
 
+/// Run setup commands from RepoConfig in the new worktree directory.
+pub fn run_setup_commands(worktree_path: &Path, commands: &[String], quiet: bool) -> Result<()> {
+    for cmd_str in commands {
+        if !quiet {
+            println!("{} Running setup: {}", "⚙️".green(), cmd_str.cyan());
+        }
+        let status = Command::new("sh")
+            .args(["-c", cmd_str])
+            .current_dir(worktree_path)
+            .status()
+            .with_context(|| format!("Failed to execute setup command: {cmd_str}"))?;
+        if !status.success() {
+            if !quiet {
+                println!(
+                    "{} Setup command failed (exit {}): {}",
+                    "⚠️".yellow(),
+                    status.code().unwrap_or(-1),
+                    cmd_str
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

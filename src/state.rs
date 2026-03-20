@@ -175,6 +175,8 @@ fn get_config_path() -> Result<PathBuf> {
 pub struct RepoConfig {
     #[serde(default)]
     pub copy_files: Vec<String>,
+    #[serde(default)]
+    pub setup_commands: Vec<String>,
 }
 
 impl RepoConfig {

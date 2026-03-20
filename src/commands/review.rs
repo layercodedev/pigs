@@ -7,7 +7,9 @@ use chrono::Utc;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
-use crate::git::{copy_files_to_worktree, execute_git, get_repo_name, update_submodules};
+use crate::git::{
+    copy_files_to_worktree, execute_git, get_repo_name, run_setup_commands, update_submodules,
+};
 use crate::input::{get_command_arg, smart_confirm};
 use crate::state::{PigsState, RepoConfig, WorktreeInfo};
 use crate::utils::sanitize_branch_name;
@@ -178,6 +180,7 @@ pub fn handle_review(target: Option<String>, base: Option<String>) -> Result<()>
 
     let repo_config = RepoConfig::load(&repo_root)?;
     copy_files_to_worktree(&repo_root, &worktree_path, &repo_config.copy_files, false)?;
+    run_setup_commands(&worktree_path, &repo_config.setup_commands, false)?;
 
     // Save to pigs state
     pigs_state.worktrees.insert(

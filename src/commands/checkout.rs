@@ -5,7 +5,9 @@ use chrono::Utc;
 use colored::Colorize;
 
 use crate::commands::open::handle_open;
-use crate::git::{copy_files_to_worktree, execute_git, get_repo_name, update_submodules};
+use crate::git::{
+    copy_files_to_worktree, execute_git, get_repo_name, run_setup_commands, update_submodules,
+};
 use crate::input::{get_command_arg, smart_confirm};
 use crate::state::{PigsState, RepoConfig, WorktreeInfo};
 use crate::utils::sanitize_branch_name;
@@ -282,6 +284,7 @@ fn create_worktree(
 
     let repo_config = RepoConfig::load(repo_root)?;
     copy_files_to_worktree(repo_root, &worktree_path, &repo_config.copy_files, false)?;
+    run_setup_commands(&worktree_path, &repo_config.setup_commands, false)?;
 
     state.worktrees.insert(
         key,

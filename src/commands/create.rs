@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use crate::commands::open::handle_open;
 use crate::git::{
     copy_files_to_worktree, execute_git, extract_repo_name_from_url, get_repo_name, list_worktrees,
-    update_submodules,
+    run_setup_commands, update_submodules,
 };
 use crate::input::{get_command_arg, smart_confirm};
 use crate::state::{PigsState, RepoConfig, WorktreeInfo};
@@ -279,6 +279,7 @@ pub fn handle_create_in_dir_quiet(
     };
     let repo_config = RepoConfig::load(&source_root)?;
     copy_files_to_worktree(&source_root, &worktree_path, &repo_config.copy_files, quiet)?;
+    run_setup_commands(&worktree_path, &repo_config.setup_commands, quiet)?;
 
     // Save state
     let mut state = PigsState::load()?;
